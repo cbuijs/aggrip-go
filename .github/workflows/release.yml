@@ -1,0 +1,79 @@
+# ==========================================================================
+# Filename: .github/workflows/release.yml
+# Version: 1.0.0
+# Date: 2026-04-23
+# Description: Automated build and release pipeline for aggrip-go suite.
+#              Compiles static, stripped binaries for darwin/arm64, 
+#              linux/arm64, and linux/amd64 on every push to main.
+# ==========================================================================
+
+name: Build and Release Tools
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  build-and-release:
+    name: Build and Publish Binaries
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Required to create a release and upload assets
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup Go Environment
+        uses: actions/setup-go@v5
+        with:
+          # clean-dom requires 1.25.0+ per documentation
+          go-version: '1.25.x'
+          cache: true
+
+      - name: Extract Short Commit Hash
+        id: vars
+        run: echo "SHORT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+
+      - name: Compile High-Performance Binaries
+        run: |
+          mkdir -p dist
+          
+          # Define compilation matrices
+          TOOLS=("aggrip" "clean-dom" "clean-ip" "undup")
+          TARGETS=("darwin/arm64" "linux/arm64" "linux/amd64")
+          
+          for tool in "${TOOLS[@]}"; do
+            for target in "${TARGETS[@]}"; do
+              # Extract OS and Architecture from target string
+              GOOS=${target%/*}
+              GOARCH=${target#*/}
+              
+              # Enforce target naming convention
+              OUTPUT_NAME="dist/${tool}-${GOOS}-${GOARCH}"
+              
+              echo "Building ${tool} for ${GOOS}/${GOARCH}..."
+              
+              # Enter tool directory, build static binary, and drop in dist folder
+              # CGO_ENABLED=0 forces static linking to prevent library hijacking/dependencies
+              # -ldflags="-s -w" strips debug tables for smaller, faster binaries
+              cd ${tool}
+              CGO_ENABLED=0 GOOS=${GOOS} GOARCH=${GOARCH} go build -ldflags="-s -w" -o "../${OUTPUT_NAME}" main.go
+              cd ..
+            done
+          done
+
+      - name: Create GitHub Release and Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.SHORT_SHA }}
+          name: Release ${{ env.SHORT_SHA }}
+          files: dist/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
