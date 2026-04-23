@@ -2,9 +2,11 @@
 /*
 ==========================================================================
 Filename: main.go
-Version: 1.0.2
-Date: 2026-04-22 17:15 CEST
+Version: 1.0.3
+Date: 2026-04-23 10:56 CEST
 Update Trail:
+  - 1.0.3 (2026-04-23): Standardized CLI parameters. Added custom flag.Usage 
+                        to clearly define long (--flag) and short (-f) args.
   - 1.0.2 (2026-04-22): Fixed runtime panic in getParents slice bounds. Hardened comment trimming.
   - 1.0.1 (2026-04-22): Fixed missing 'unicode' package import.
   - 1.0.0 (2026-04-22): Initial Go port consolidating clean-dom.py and clean-dom2.py.
@@ -74,19 +76,51 @@ var (
 )
 
 func init() {
+	// Register variables for double-dash configurations.
 	flag.Var(&blocklists, "blocklist", "Path(s) or URL(s) to the DNS blocklist(s) (can specify multiple times)")
 	flag.Var(&allowlists, "allowlist", "Optional path(s) or URL(s) to the DNS allowlist(s)")
 	flag.Var(&topnlists, "topnlist", "Optional path(s) or URL(s) to Top-N list(s)")
-	flag.StringVar(&inputFormat, "i", "", "Strictly enforce input format: domain, hosts, adblock, routedns, squid")
-	flag.StringVar(&outputFmt, "o", "domain", "Output format: all, domain, hosts, adblock, dnsmasq, unbound, rpz, routedns, squid")
+
+	flag.StringVar(&inputFormat, "input-format", "", "Strictly enforce input format: domain, hosts, adblock, routedns, squid")
+	flag.StringVar(&inputFormat, "i", "", "Short for --input-format")
+
+	flag.StringVar(&outputFmt, "output-format", "domain", "Output format: all, domain, hosts, adblock, dnsmasq, unbound, rpz, routedns, squid")
+	flag.StringVar(&outputFmt, "o", "domain", "Short for --output-format")
+
 	flag.StringVar(&allDir, "all-dir", "", "Mandatory output directory to use when output is set to 'all'")
-	flag.StringVar(&workDir, "w", "", "Directory to save unmodified raw source files")
+	
+	flag.StringVar(&workDir, "work-dir", "", "Directory to save unmodified raw source files")
+	flag.StringVar(&workDir, "w", "", "Short for --work-dir")
+
 	flag.StringVar(&sortAlgo, "sort", "domain", "Sorting algorithm: domain, alphabetically, tld")
 	flag.StringVar(&outBlocklist, "out-blocklist", "", "File path to write the blocklist output (default: STDOUT)")
 	flag.StringVar(&outAllowlist, "out-allowlist", "", "File path to write the allowlist output")
 	flag.BoolVar(&optimizeAllow, "optimize-allowlist", false, "Drop unused allowlist entries")
 	flag.BoolVar(&suppressComments, "suppress-comments", false, "Suppress audit log of removed domains")
-	flag.BoolVar(&verbose, "v", false, "Show progress and statistics on STDERR")
+	
+	flag.BoolVar(&verbose, "verbose", false, "Show progress and statistics on STDERR")
+	flag.BoolVar(&verbose, "v", false, "Short for --verbose")
+
+	// Custom formatted usage explicitly declaring standard flags
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage of clean-dom:\n\n")
+		fmt.Fprintf(os.Stderr, "Core Options:\n")
+		fmt.Fprintf(os.Stderr, "      --blocklist <path/url>     Path(s) or URL(s) to the DNS blocklist(s) (Required, can specify multiple)\n")
+		fmt.Fprintf(os.Stderr, "      --allowlist <path/url>     Path(s) or URL(s) to the DNS allowlist(s) (Optional, can specify multiple)\n")
+		fmt.Fprintf(os.Stderr, "      --topnlist <path/url>      Path(s) or URL(s) to Top-N list(s) (Optional, can specify multiple)\n")
+		fmt.Fprintf(os.Stderr, "  -i, --input-format <format>    Strictly enforce input format (domain, hosts, adblock, routedns, squid)\n")
+		fmt.Fprintf(os.Stderr, "  -o, --output-format <format>   Output format (all, domain, hosts, adblock, dnsmasq, unbound, rpz, routedns, squid) (default \"domain\")\n")
+		fmt.Fprintf(os.Stderr, "      --out-blocklist <file>     File path to write the blocklist output (default: STDOUT)\n")
+		fmt.Fprintf(os.Stderr, "      --out-allowlist <file>     File path to write the allowlist output\n")
+		fmt.Fprintf(os.Stderr, "      --all-dir <dir>            Mandatory output directory to use when output format is set to 'all'\n")
+		fmt.Fprintf(os.Stderr, "  -w, --work-dir <dir>           Directory to save unmodified raw source files\n")
+		fmt.Fprintf(os.Stderr, "      --sort <type>              Sorting algorithm (domain, alphabetically, tld) (default \"domain\")\n")
+		fmt.Fprintf(os.Stderr, "      --optimize-allowlist       Drop unused allowlist entries\n")
+		fmt.Fprintf(os.Stderr, "      --suppress-comments        Suppress audit log of removed domains\n")
+		fmt.Fprintf(os.Stderr, "  -v, --verbose                  Show progress and statistics on STDERR\n")
+		fmt.Fprintf(os.Stderr, "\nExample:\n")
+		fmt.Fprintf(os.Stderr, "  clean-dom --blocklist ads.txt --allowlist ok.txt -o unbound --out-blocklist filter.conf -v\n")
+	}
 }
 
 // logMsg prints messages to STDERR if verbose mode is enabled.

@@ -1,13 +1,16 @@
 // ==========================================================================
 // Filename: cleanip.go
-// Version: 1.1.0
-// Date: 2026-04-22 15:45 CEST
+// Version: 1.1.1
+// Date: 2026-04-23 10:56 CEST
 // Description: Enterprise-grade IP blocklist optimizer. High-speed Go port
 //              of clean-ip.py. Aggregates IPs, CIDRs, ranges. Cross-references
 //              against allowlists, collapses redundant subnets, performs
 //              mathematical hole-punching, and exports to firewall formats.
 //
 // Changes:
+// - v1.1.1 (2026-04-23): Standardized CLI parameters. Double-dash for long flags
+//                        and single-dash for short flags. Added custom flag.Usage 
+//                        to clearly expose list args intercepted by custom parser.
 // - v1.1.0 (2026-04-22): Major performance overhaul. Replaced slow regex engine
 //                        with native string manipulation. Streamed file I/O to
 //                        drop memory footprint. Implemented zero-allocation 
@@ -30,7 +33,6 @@ import (
 	"net/netip"
 	"os"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -557,17 +559,38 @@ func formatAllowNetwork(p netip.Prefix, fmtType string, rangeSep string) string 
 
 func main() {
 	var opts Options
-	flag.StringVar(&opts.Output, "o", "cidr", "Output format (cidr, netmask, range, cisco, iptables, mikrotik, padded)")
-	flag.StringVar(&opts.Output, "output", "cidr", "Output format")
+	flag.StringVar(&opts.Output, "output", "cidr", "Output format (cidr, netmask, range, cisco, iptables, mikrotik, padded)")
+	flag.StringVar(&opts.Output, "o", "cidr", "Short for --output")
+	
 	flag.StringVar(&opts.RangeSep, "range-sep", "dash", "Separator for range output (space, dash)")
 	flag.StringVar(&opts.OutBlocklist, "out-blocklist", "", "File path to write the blocklist output")
 	flag.StringVar(&opts.OutAllowlist, "out-allowlist", "", "File path to write the allowlist output")
 	flag.BoolVar(&opts.OptimizeAllowlist, "optimize-allowlist", false, "Drop unused allowlist entries")
 	flag.BoolVar(&opts.SuppressComments, "suppress-comments", false, "Suppress audit log comments")
-	flag.BoolVar(&opts.Strict, "s", false, "Strict mode: Reject CIDRs with dirty host bits")
-	flag.BoolVar(&opts.Strict, "strict", false, "Strict mode")
-	flag.BoolVar(&opts.Verbose, "v", false, "Verbose: Show progress on STDERR")
-	flag.BoolVar(&opts.Verbose, "verbose", false, "Verbose")
+	
+	flag.BoolVar(&opts.Strict, "strict", false, "Strict mode: Reject CIDRs with dirty host bits")
+	flag.BoolVar(&opts.Strict, "s", false, "Short for --strict")
+	
+	flag.BoolVar(&opts.Verbose, "verbose", false, "Verbose: Show progress on STDERR")
+	flag.BoolVar(&opts.Verbose, "v", false, "Short for --verbose")
+
+	// Custom formatted usage explicitly declaring list flags bypassing flag constraints
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage of clean-ip:\n\n")
+		fmt.Fprintf(os.Stderr, "Core Options:\n")
+		fmt.Fprintf(os.Stderr, "      --blocklist <path/url>...  Path(s) or URL(s) to the IP blocklist(s) (Required, accepts multiple separated by space)\n")
+		fmt.Fprintf(os.Stderr, "      --allowlist <path/url>...  Path(s) or URL(s) to the IP allowlist(s) (Optional, accepts multiple separated by space)\n")
+		fmt.Fprintf(os.Stderr, "  -o, --output <format>          Output format (cidr, netmask, range, cisco, iptables, mikrotik, padded) (default \"cidr\")\n")
+		fmt.Fprintf(os.Stderr, "      --range-sep <sep>          Separator for range output (space, dash) (default \"dash\")\n")
+		fmt.Fprintf(os.Stderr, "      --out-blocklist <file>     File path to write the blocklist output\n")
+		fmt.Fprintf(os.Stderr, "      --out-allowlist <file>     File path to write the allowlist output\n")
+		fmt.Fprintf(os.Stderr, "      --optimize-allowlist       Drop unused allowlist entries\n")
+		fmt.Fprintf(os.Stderr, "      --suppress-comments        Suppress audit log comments\n")
+		fmt.Fprintf(os.Stderr, "  -s, --strict                   Strict mode: Reject CIDRs with dirty host bits\n")
+		fmt.Fprintf(os.Stderr, "  -v, --verbose                  Verbose: Show progress on STDERR\n")
+		fmt.Fprintf(os.Stderr, "\nExample:\n")
+		fmt.Fprintf(os.Stderr, "  clean-ip --blocklist drop.txt --allowlist allow.txt -o iptables --out-blocklist rules.v4 -v\n")
+	}
 
 	// ----------------------------------------------------------------------
 	// Custom Pre-Parsing for nargs='+' Support

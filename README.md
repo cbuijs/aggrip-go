@@ -23,7 +23,7 @@ High-performance, low-latency, and secure Go utilities for optimizing, deduplica
 **Usage Example:**
 
 ```bash
-go run clean-dom/main.go --blocklist [https://example.com/ads.txt](https://example.com/ads.txt) --allowlist local-allow.txt -o unbound --out-blocklist unbound-filter.conf
+clean-dom --blocklist https://example.com/ads.txt --allowlist local-allow.txt -o unbound --out-blocklist unbound-filter.conf
 ```
 
 ### 2. clean-ip
@@ -45,7 +45,7 @@ go run clean-dom/main.go --blocklist [https://example.com/ads.txt](https://examp
 **Usage Example:**
 
 ```bash
-go run clean-ip/main.go --blocklist drop.txt --allowlist allow.txt -o iptables --out-blocklist rules.v4
+clean-ip --blocklist drop.txt --allowlist allow.txt --output iptables --out-blocklist rules.v4
 ```
 
 ### 3. aggrip
@@ -68,10 +68,10 @@ go run clean-ip/main.go --blocklist drop.txt --allowlist allow.txt -o iptables -
 
 ```bash
 # Standard UNIX piping
-cat raw_ips.txt | go run aggrip/main.go > optimized_cidrs.txt
+cat raw_ips.txt | aggrip > optimized_cidrs.txt
 
 # Direct file I/O with strict boundary enforcement
-go run aggrip/main.go -i raw_ips.txt -o optimized_cidrs.txt -s
+aggrip --input raw_ips.txt --output optimized_cidrs.txt --strict
 ```
 
 ## Building from Source
@@ -91,5 +91,4 @@ go build -ldflags="-s -w" -o clean-ip main.go
 cd ../aggrip
 go build -ldflags="-s -w" -o aggrip main.go
 ```
-
 

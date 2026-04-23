@@ -1,8 +1,11 @@
 // ==========================================================================
 // Filename: main.go
-// Version: v0.17-20260423
-// Date: 2026-04-23 10:45 CEST
+// Version: v0.18-20260423
+// Date: 2026-04-23 10:56 CEST
 // Update Trail:
+//   - v0.18-20260423: Standardized CLI parameters. Implemented double-dash
+//                     for long flags and single-dash for short flags. Added
+//                     customized flag.Usage output to expose all options clearly.
 //   - v0.17-20260423: Added command-line flags (-i, -o, -s, -v) to extend 
 //                     usability beyond standard UNIX pipes.
 //   - v0.16-20260423: Initial Go translation from aggrip.py. Implemented 
@@ -35,15 +38,29 @@ var (
 
 // init registers the command-line flags before main() executes.
 func init() {
-	flag.StringVar(&inputFile, "i", "", "Input file path (default: STDIN)")
-	flag.StringVar(&outputFile, "o", "", "Output file path (default: STDOUT)")
-	flag.BoolVar(&strictMode, "s", false, "Strict mode: drop invalid CIDRs instead of truncating host bits")
-	flag.BoolVar(&showVersion, "v", false, "Show version information and exit")
+	// Standardize on double-dash long flags and single-dash short flags.
+	flag.StringVar(&inputFile, "input", "", "Input file path (default: STDIN)")
+	flag.StringVar(&inputFile, "i", "", "Short for --input")
+
+	flag.StringVar(&outputFile, "output", "", "Output file path (default: STDOUT)")
+	flag.StringVar(&outputFile, "o", "", "Short for --output")
+
+	flag.BoolVar(&strictMode, "strict", false, "Strict mode: drop invalid CIDRs instead of truncating host bits")
+	flag.BoolVar(&strictMode, "s", false, "Short for --strict")
+
+	flag.BoolVar(&showVersion, "version", false, "Show version information and exit")
+	flag.BoolVar(&showVersion, "v", false, "Short for --version")
 	
-	// Custom usage output for the CLI tool
+	// Custom usage output for the CLI tool to clearly map short and long flags
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage of aggrip:\n")
-		flag.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "Usage of aggrip:\n\n")
+		fmt.Fprintf(os.Stderr, "Options:\n")
+		fmt.Fprintf(os.Stderr, "  -i, --input <path>     Input file path (default: STDIN)\n")
+		fmt.Fprintf(os.Stderr, "  -o, --output <path>    Output file path (default: STDOUT)\n")
+		fmt.Fprintf(os.Stderr, "  -s, --strict           Strict mode: drop invalid CIDRs instead of truncating host bits\n")
+		fmt.Fprintf(os.Stderr, "  -v, --version          Show version information and exit\n")
+		fmt.Fprintf(os.Stderr, "\nExample:\n")
+		fmt.Fprintf(os.Stderr, "  aggrip -i raw_ips.txt -o optimized_cidrs.txt --strict\n")
 	}
 }
 
@@ -54,7 +71,7 @@ func main() {
 
 	// Handle version output and exit early if requested.
 	if showVersion {
-		fmt.Println("aggrip Go Edition - Version v0.17-20260423")
+		fmt.Println("aggrip Go Edition - Version v0.18-20260423")
 		os.Exit(0)
 	}
 
