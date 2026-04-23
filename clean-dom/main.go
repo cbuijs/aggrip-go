@@ -1,10 +1,11 @@
-// main.go
 /*
 ==========================================================================
-Filename: main.go
-Version: 1.0.3
-Date: 2026-04-23 10:56 CEST
+Filename: clean-dom/main.go
+Version: 1.0.4-20260423
+Date: 2026-04-23 11:29 CEST
 Update Trail:
+  - 1.0.4 (2026-04-23): Standardized CLI parameters across the suite. Added
+                        short parameters (-b, -a, -t, -V) and unified help output.
   - 1.0.3 (2026-04-23): Standardized CLI parameters. Added custom flag.Usage 
                         to clearly define long (--flag) and short (-f) args.
   - 1.0.2 (2026-04-22): Fixed runtime panic in getParents slice bounds. Hardened comment trimming.
@@ -41,7 +42,7 @@ import (
 	"golang.org/x/net/idna"
 )
 
-// stringSlice implements flag.Value to allow multiple CLI arguments.
+// stringSlice implements flag.Value to allow multiple CLI arguments natively.
 type stringSlice []string
 
 func (s *stringSlice) String() string {
@@ -52,7 +53,7 @@ func (s *stringSlice) Set(value string) error {
 	return nil
 }
 
-// Global Flags
+// Global Flags defining core operations and behaviors
 var (
 	blocklists       stringSlice
 	allowlists       stringSlice
@@ -67,19 +68,25 @@ var (
 	optimizeAllow    bool
 	suppressComments bool
 	verbose          bool
+	showVersion      bool
 )
 
-// Pre-compiled strict regex patterns for domains
+// Pre-compiled strict regex patterns for validating domains aggressively
 var (
 	domainPattern        = regexp.MustCompile(`^([a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?\.)+[a-z0-9\-]{2,}$`)
 	unicodeDomainPattern = regexp.MustCompile(`(?i)^([a-z0-9\x{00a1}-\x{ffff}]([a-z0-9\x{00a1}-\x{ffff}\-]{0,61}[a-z0-9\x{00a1}-\x{ffff}])?\.)+[a-z0-9\x{00a1}-\x{ffff}\-]{2,}$`)
 )
 
 func init() {
-	// Register variables for double-dash configurations.
+	// Register variables for double-dash configurations. Standardized short formats included.
 	flag.Var(&blocklists, "blocklist", "Path(s) or URL(s) to the DNS blocklist(s) (can specify multiple times)")
+	flag.Var(&blocklists, "b", "Short for --blocklist")
+
 	flag.Var(&allowlists, "allowlist", "Optional path(s) or URL(s) to the DNS allowlist(s)")
+	flag.Var(&allowlists, "a", "Short for --allowlist")
+
 	flag.Var(&topnlists, "topnlist", "Optional path(s) or URL(s) to Top-N list(s)")
+	flag.Var(&topnlists, "t", "Short for --topnlist")
 
 	flag.StringVar(&inputFormat, "input-format", "", "Strictly enforce input format: domain, hosts, adblock, routedns, squid")
 	flag.StringVar(&inputFormat, "i", "", "Short for --input-format")
@@ -101,13 +108,16 @@ func init() {
 	flag.BoolVar(&verbose, "verbose", false, "Show progress and statistics on STDERR")
 	flag.BoolVar(&verbose, "v", false, "Short for --verbose")
 
-	// Custom formatted usage explicitly declaring standard flags
+	flag.BoolVar(&showVersion, "version", false, "Show version information and exit")
+	flag.BoolVar(&showVersion, "V", false, "Short for --version")
+
+	// Custom formatted usage explicitly declaring standard flags across the suite
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage of clean-dom:\n\n")
 		fmt.Fprintf(os.Stderr, "Core Options:\n")
-		fmt.Fprintf(os.Stderr, "      --blocklist <path/url>     Path(s) or URL(s) to the DNS blocklist(s) (Required, can specify multiple)\n")
-		fmt.Fprintf(os.Stderr, "      --allowlist <path/url>     Path(s) or URL(s) to the DNS allowlist(s) (Optional, can specify multiple)\n")
-		fmt.Fprintf(os.Stderr, "      --topnlist <path/url>      Path(s) or URL(s) to Top-N list(s) (Optional, can specify multiple)\n")
+		fmt.Fprintf(os.Stderr, "  -b, --blocklist <path/url>     Path(s) or URL(s) to the DNS blocklist(s) (Required, can specify multiple)\n")
+		fmt.Fprintf(os.Stderr, "  -a, --allowlist <path/url>     Path(s) or URL(s) to the DNS allowlist(s) (Optional, can specify multiple)\n")
+		fmt.Fprintf(os.Stderr, "  -t, --topnlist <path/url>      Path(s) or URL(s) to Top-N list(s) (Optional, can specify multiple)\n")
 		fmt.Fprintf(os.Stderr, "  -i, --input-format <format>    Strictly enforce input format (domain, hosts, adblock, routedns, squid)\n")
 		fmt.Fprintf(os.Stderr, "  -o, --output-format <format>   Output format (all, domain, hosts, adblock, dnsmasq, unbound, rpz, routedns, squid) (default \"domain\")\n")
 		fmt.Fprintf(os.Stderr, "      --out-blocklist <file>     File path to write the blocklist output (default: STDOUT)\n")
@@ -118,12 +128,14 @@ func init() {
 		fmt.Fprintf(os.Stderr, "      --optimize-allowlist       Drop unused allowlist entries\n")
 		fmt.Fprintf(os.Stderr, "      --suppress-comments        Suppress audit log of removed domains\n")
 		fmt.Fprintf(os.Stderr, "  -v, --verbose                  Show progress and statistics on STDERR\n")
+		fmt.Fprintf(os.Stderr, "  -V, --version                  Show version information and exit\n")
+		fmt.Fprintf(os.Stderr, "  -h, --help                     Show this help message\n")
 		fmt.Fprintf(os.Stderr, "\nExample:\n")
-		fmt.Fprintf(os.Stderr, "  clean-dom --blocklist ads.txt --allowlist ok.txt -o unbound --out-blocklist filter.conf -v\n")
+		fmt.Fprintf(os.Stderr, "  clean-dom -b ads.txt -a ok.txt -o unbound --out-blocklist filter.conf -v\n")
 	}
 }
 
-// logMsg prints messages to STDERR if verbose mode is enabled.
+// logMsg prints messages to STDERR if verbose mode is enabled. Keeps STDOUT clear.
 func logMsg(msg string) {
 	if verbose {
 		log.Printf("[*] %s\n", msg)
@@ -143,7 +155,7 @@ func isFastIP(token string) bool {
 	return false
 }
 
-// detectFormat samples lines to heuristically determine the file format.
+// detectFormat samples lines to heuristically determine the file format dynamically.
 func detectFormat(lines []string) string {
 	counts := map[string]int{"hosts": 0, "adblock": 0, "routedns": 0, "squid": 0, "domain": 0}
 	validLines := 0
@@ -210,7 +222,7 @@ func detectFormat(lines []string) string {
 	return "mixed"
 }
 
-// normalizeDomain sanitizes noisy domain inputs.
+// normalizeDomain sanitizes noisy domain inputs by aggressively stripping artifacts.
 func normalizeDomain(d string) string {
 	d = strings.TrimSpace(strings.ToLower(d))
 	if strings.HasPrefix(d, "@@||") {
@@ -227,7 +239,7 @@ func normalizeDomain(d string) string {
 	return strings.Trim(d, ".")
 }
 
-// parseResult encapsulates extracted metadata from Adblock syntax.
+// parseResult encapsulates extracted metadata from complex syntax parsing.
 type parseResult struct {
 	Domain              string
 	IsAllow             bool
@@ -237,7 +249,7 @@ type parseResult struct {
 	DenyAllowUnicodeMap map[string]string
 }
 
-// isASCII checks if a string contains only ASCII characters.
+// isASCII checks if a string contains only ASCII characters. Fast validation path.
 func isASCII(s string) bool {
 	for i := 0; i < len(s); i++ {
 		if s[i] > unicode.MaxASCII {
@@ -260,7 +272,7 @@ func parseDomainToken(token string) parseResult {
 		token = token[2:]
 	}
 
-	// Drop regex rules
+	// Drop regex rules natively.
 	if strings.HasPrefix(token, "/") {
 		return res
 	}
@@ -306,7 +318,7 @@ func parseDomainToken(token string) parseResult {
 					}
 				}
 			} else if mod != "" {
-				// Contains strict unrelated modifiers; dump the rule to be safe.
+				// Contains strict unrelated modifiers; dump the rule to be absolutely safe.
 				return res
 			}
 		}
@@ -380,7 +392,7 @@ func fetchLines(source string) ([]string, error) {
 	return lines, scanner.Err()
 }
 
-// ParsedLists contains cross-referenced parsed domains.
+// ParsedLists contains cross-referenced parsed domains globally mapped.
 type ParsedLists struct {
 	Blocks      []string
 	Allows      []string
@@ -562,7 +574,7 @@ func readDomainsBulk(source string, isTopN bool, forceAllow bool, listType strin
 	return result
 }
 
-// getParents yields a slice of domains traveling bottom-up toward the apex.
+// getParents yields a slice of domains traveling bottom-up toward the apex natively.
 func getParents(domain string) []string {
 	var parents []string
 	for {
@@ -589,6 +601,11 @@ func reverseStr(s string) string {
 func main() {
 	log.SetFlags(0)
 	flag.Parse()
+
+	if showVersion {
+		fmt.Println("clean-dom Go Edition - Version 1.0.4-20260423")
+		os.Exit(0)
+	}
 
 	if len(blocklists) == 0 {
 		log.Fatal("Error: At least one --blocklist must be provided.")
@@ -919,7 +936,7 @@ func main() {
 					}
 					outputItems = append(outputItems, removedLogUnusedAllows...)
 					
-					// Add conversions
+					// Add conversions natively preserving original state comments
 					for _, conv := range conversionLog {
 						// Cleanly strip the prefix to avoid slice bound issues
 						cleanConv := strings.TrimSpace(strings.TrimPrefix(conv, "#"))
@@ -943,7 +960,7 @@ func main() {
 					cleanI := strings.Split(strings.TrimSpace(strings.TrimPrefix(outputItems[i], "#")), " - ")[0]
 					cleanJ := strings.Split(strings.TrimSpace(strings.TrimPrefix(outputItems[j], "#")), " - ")[0]
 					
-					// Sort order: domain segments reversed, comments last
+					// Sort order: domain segments reversed, comments last to stick with node
 					revI := reverseStr(cleanI)
 					revJ := reverseStr(cleanJ)
 

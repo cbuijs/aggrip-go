@@ -1,25 +1,30 @@
-// ==========================================================================
-// Filename: cleanip.go
-// Version: 1.1.1
-// Date: 2026-04-23 10:56 CEST
-// Description: Enterprise-grade IP blocklist optimizer. High-speed Go port
-//              of clean-ip.py. Aggregates IPs, CIDRs, ranges. Cross-references
-//              against allowlists, collapses redundant subnets, performs
-//              mathematical hole-punching, and exports to firewall formats.
-//
-// Changes:
-// - v1.1.1 (2026-04-23): Standardized CLI parameters. Double-dash for long flags
-//                        and single-dash for short flags. Added custom flag.Usage 
-//                        to clearly expose list args intercepted by custom parser.
-// - v1.1.0 (2026-04-22): Major performance overhaul. Replaced slow regex engine
-//                        with native string manipulation. Streamed file I/O to
-//                        drop memory footprint. Implemented zero-allocation 
-//                        FieldsFunc tokenization. Upgraded to slices.SortFunc.
-//                        Added 1MB buffered writers for high-speed exports.
-// - v1.0.1 (2026-04-22): Fixed flag.Parse() crash by preemptively intercepting 
-//                        nargs='+' list arguments (--blocklist/--allowlist).
-// - v1.0.0 (2026-04-22): Initial high-performance Go implementation.
-// ==========================================================================
+/*
+==========================================================================
+Filename: clean-ip/main.go
+Version: 1.1.3-20260423
+Date: 2026-04-23 11:35 CEST
+Description: Enterprise-grade IP blocklist optimizer. High-speed Go port
+             of clean-ip.py. Aggregates IPs, CIDRs, ranges. Cross-references
+             against allowlists, collapses redundant subnets, performs
+             mathematical hole-punching, and exports to firewall formats.
+
+Changes:
+- v1.1.3 (2026-04-23): Updated header filename to include subdirectory.
+- v1.1.2 (2026-04-23): Standardized CLI parameters across suite (-b, -a, 
+                       -V, -v, -h) modifying custom parsing handlers natively.
+- v1.1.1 (2026-04-23): Standardized CLI parameters. Double-dash for long flags
+                       and single-dash for short flags. Added custom flag.Usage 
+                       to clearly expose list args intercepted by custom parser.
+- v1.1.0 (2026-04-22): Major performance overhaul. Replaced slow regex engine
+                       with native string manipulation. Streamed file I/O to
+                       drop memory footprint. Implemented zero-allocation 
+                       FieldsFunc tokenization. Upgraded to slices.SortFunc.
+                       Added 1MB buffered writers for high-speed exports.
+- v1.0.1 (2026-04-22): Fixed flag.Parse() crash by preemptively intercepting 
+                       nargs='+' list arguments (--blocklist/--allowlist).
+- v1.0.0 (2026-04-22): Initial high-performance Go implementation.
+==========================================================================
+*/
 
 package main
 
@@ -51,6 +56,7 @@ type Options struct {
 	SuppressComments  bool
 	Strict            bool
 	Verbose           bool
+	ShowVersion       bool
 }
 
 // logMsg outputs progress directly to STDERR, ensuring STDOUT remains clean
@@ -164,7 +170,7 @@ func fetchAndParse(source string, strict bool, verbose bool) ([]netip.Prefix, er
 	for scanner.Scan() {
 		rawLine := scanner.Text()
 
-		// Strip comments instantly
+		// Strip comments instantly directly manipulating string views
 		if idx := strings.IndexByte(rawLine, '#'); idx != -1 {
 			rawLine = rawLine[:idx]
 		}
@@ -188,7 +194,7 @@ func fetchAndParse(source string, strict bool, verbose bool) ([]netip.Prefix, er
 
 			// Lookahead for Range Summarization:
 			// Because FieldsFunc stripped dashes, ranges naturally fall to token[i+1].
-			// This completely circumvents Python's complex spacing offset tracking.
+			// This completely circumvents complex spacing offset tracking.
 			if !strings.ContainsRune(token, '/') && i+1 < len(tokens) {
 				nextToken := stripZeroPadding(tokens[i+1])
 
@@ -236,8 +242,8 @@ func fetchAndParse(source string, strict bool, verbose bool) ([]netip.Prefix, er
 	return networks, scanner.Err()
 }
 
-// parsePrefixStrict handles both CIDR and Netmask notation. 
-// Truncates dirty host bits safely if strict == false.
+// parsePrefixStrict handles both CIDR and Netmask notation safely. 
+// Truncates dirty host bits safely if strict == false natively using netip.
 func parsePrefixStrict(s string, strict bool) (netip.Prefix, error) {
 	if strings.Contains(s, "/") {
 		parts := strings.Split(s, "/")
@@ -289,7 +295,7 @@ func addrBitLen(a netip.Addr) int {
 	return 128
 }
 
-// lastAddr calculates the broadcast address by manipulating binary arrays
+// lastAddr calculates the broadcast address by manipulating binary arrays directly.
 func lastAddr(p netip.Prefix) netip.Addr {
 	b := p.Addr().As16()
 	bitLen := addrBitLen(p.Addr())
@@ -308,7 +314,7 @@ func lastAddr(p netip.Prefix) netip.Addr {
 	return netip.AddrFrom16(b)
 }
 
-// maxAddr returns the mathematical limit ceiling based on IP version
+// maxAddr returns the mathematical limit ceiling based on IP version natively.
 func maxAddr(a netip.Addr) netip.Addr {
 	if a.Is4() {
 		return netip.AddrFrom4([4]byte{255, 255, 255, 255})
@@ -316,7 +322,7 @@ func maxAddr(a netip.Addr) netip.Addr {
 	return netip.AddrFrom16([16]byte{255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255})
 }
 
-// nextAddr manually forces an iterative increment
+// nextAddr manually forces an iterative increment across host bit boundaries.
 func nextAddr(a netip.Addr) netip.Addr {
 	b := a.As16()
 	for i := 15; i >= 0; i-- {
@@ -364,7 +370,7 @@ func summarizeRange(start, end netip.Addr) []netip.Prefix {
 	return res
 }
 
-// halve mathematically splits a supernet exactly down the middle
+// halve mathematically splits a supernet exactly down the middle using binary XOR
 func halve(p netip.Prefix) (netip.Prefix, netip.Prefix) {
 	bits := p.Bits()
 	a1 := p.Addr()
@@ -443,14 +449,14 @@ func collapsePrefixes(prefixes []netip.Prefix) []netip.Prefix {
 		curr := prefixes[i]
 		last := stack[len(stack)-1]
 
-		// Absorb total overlap
+		// Absorb total overlap intrinsically
 		if last.Contains(curr.Addr()) {
 			continue
 		}
 
 		stack = append(stack, curr)
 
-		// Sweep backwards analyzing structural bounds to merge adjacencies
+		// Sweep backwards analyzing structural bounds to merge adjacencies natively
 		for len(stack) >= 2 {
 			p1 := stack[len(stack)-2]
 			p2 := stack[len(stack)-1]
@@ -574,12 +580,15 @@ func main() {
 	flag.BoolVar(&opts.Verbose, "verbose", false, "Verbose: Show progress on STDERR")
 	flag.BoolVar(&opts.Verbose, "v", false, "Short for --verbose")
 
+	flag.BoolVar(&opts.ShowVersion, "version", false, "Show version information and exit")
+	flag.BoolVar(&opts.ShowVersion, "V", false, "Short for --version")
+
 	// Custom formatted usage explicitly declaring list flags bypassing flag constraints
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage of clean-ip:\n\n")
 		fmt.Fprintf(os.Stderr, "Core Options:\n")
-		fmt.Fprintf(os.Stderr, "      --blocklist <path/url>...  Path(s) or URL(s) to the IP blocklist(s) (Required, accepts multiple separated by space)\n")
-		fmt.Fprintf(os.Stderr, "      --allowlist <path/url>...  Path(s) or URL(s) to the IP allowlist(s) (Optional, accepts multiple separated by space)\n")
+		fmt.Fprintf(os.Stderr, "  -b, --blocklist <path/url>...  Path(s) or URL(s) to the IP blocklist(s) (Required, accepts multiple separated by space)\n")
+		fmt.Fprintf(os.Stderr, "  -a, --allowlist <path/url>...  Path(s) or URL(s) to the IP allowlist(s) (Optional, accepts multiple separated by space)\n")
 		fmt.Fprintf(os.Stderr, "  -o, --output <format>          Output format (cidr, netmask, range, cisco, iptables, mikrotik, padded) (default \"cidr\")\n")
 		fmt.Fprintf(os.Stderr, "      --range-sep <sep>          Separator for range output (space, dash) (default \"dash\")\n")
 		fmt.Fprintf(os.Stderr, "      --out-blocklist <file>     File path to write the blocklist output\n")
@@ -588,8 +597,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "      --suppress-comments        Suppress audit log comments\n")
 		fmt.Fprintf(os.Stderr, "  -s, --strict                   Strict mode: Reject CIDRs with dirty host bits\n")
 		fmt.Fprintf(os.Stderr, "  -v, --verbose                  Verbose: Show progress on STDERR\n")
+		fmt.Fprintf(os.Stderr, "  -V, --version                  Show version information and exit\n")
+		fmt.Fprintf(os.Stderr, "  -h, --help                     Show this help message\n")
 		fmt.Fprintf(os.Stderr, "\nExample:\n")
-		fmt.Fprintf(os.Stderr, "  clean-ip --blocklist drop.txt --allowlist allow.txt -o iptables --out-blocklist rules.v4 -v\n")
+		fmt.Fprintf(os.Stderr, "  clean-ip -b drop.txt -a allow.txt -o iptables --out-blocklist rules.v4 -v\n")
 	}
 
 	// ----------------------------------------------------------------------
@@ -602,13 +613,13 @@ func main() {
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
-		if arg == "--blocklist" || arg == "-blocklist" {
+		if arg == "--blocklist" || arg == "-blocklist" || arg == "-b" {
 			i++
 			for ; i < len(args) && !strings.HasPrefix(args[i], "-"); i++ {
 				opts.Blocklists = append(opts.Blocklists, args[i])
 			}
 			i--
-		} else if arg == "--allowlist" || arg == "-allowlist" {
+		} else if arg == "--allowlist" || arg == "-allowlist" || arg == "-a" {
 			i++
 			for ; i < len(args) && !strings.HasPrefix(args[i], "-"); i++ {
 				opts.Allowlists = append(opts.Allowlists, args[i])
@@ -619,12 +630,18 @@ func main() {
 		}
 	}
 
-	// Override arguments feeding flag.Parse to drop lists entirely
+	// Override arguments feeding flag.Parse to drop lists entirely and let standard handle the rest
 	os.Args = append([]string{os.Args[0]}, standardArgs...)
 	flag.Parse()
 
+	// Handle version output intercept natively
+	if opts.ShowVersion {
+		fmt.Println("clean-ip Go Edition - Version 1.1.3-20260423")
+		os.Exit(0)
+	}
+
 	if len(opts.Blocklists) == 0 {
-		fmt.Fprintf(os.Stderr, "Error: --blocklist is required.\n")
+		fmt.Fprintf(os.Stderr, "Error: --blocklist / -b is required.\n")
 		os.Exit(1)
 	}
 
@@ -701,7 +718,7 @@ func main() {
 		}
 	}
 
-	// Pass 2: Mathematical Hole Punching
+	// Pass 2: Mathematical Hole Punching internally safely bypassing allow overlaps
 	var finalBlocks []netip.Prefix
 	for _, block := range filteredBlocks {
 		currentPieces := []netip.Prefix{block}
@@ -728,7 +745,7 @@ func main() {
 		finalBlocks = append(finalBlocks, currentPieces...)
 	}
 
-	// Final cleanup matrix
+	// Final cleanup matrix explicitly to optimize fragmentation boundaries
 	finalBlocks = collapsePrefixes(finalBlocks)
 
 	var finalAllows []netip.Prefix
@@ -755,7 +772,7 @@ func main() {
 		outB = f
 	}
 
-	// Wrap targets with 1MB buffered writers to maximize I/O performance
+	// Wrap targets with 1MB buffered writers to maximize I/O performance massively
 	bwBlock := bufio.NewWriterSize(outB, 1024*1024)
 	defer bwBlock.Flush()
 
@@ -783,7 +800,7 @@ func main() {
 		}
 	}
 
-	// Inline stream struct to guarantee specific placement
+	// Inline stream struct to guarantee specific placement during output sequence
 	type StreamItem struct {
 		isIPv4 bool
 		ip     netip.Addr

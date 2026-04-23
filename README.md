@@ -23,7 +23,7 @@ High-performance, low-latency, and secure Go utilities for optimizing, deduplica
 **Usage Example:**
 
 ```bash
-clean-dom --blocklist https://example.com/ads.txt --allowlist local-allow.txt -o unbound --out-blocklist unbound-filter.conf
+clean-dom -b https://example.com/ads.txt -a local-allow.txt -o unbound --out-blocklist unbound-filter.conf -v
 ```
 
 ### 2. clean-ip
@@ -45,7 +45,7 @@ clean-dom --blocklist https://example.com/ads.txt --allowlist local-allow.txt -o
 **Usage Example:**
 
 ```bash
-clean-ip --blocklist drop.txt --allowlist allow.txt --output iptables --out-blocklist rules.v4
+clean-ip -b drop.txt -a allow.txt -o iptables --out-blocklist rules.v4 -v
 ```
 
 ### 3. aggrip
@@ -71,12 +71,33 @@ clean-ip --blocklist drop.txt --allowlist allow.txt --output iptables --out-bloc
 cat raw_ips.txt | aggrip > optimized_cidrs.txt
 
 # Direct file I/O with strict boundary enforcement
-aggrip --input raw_ips.txt --output optimized_cidrs.txt --strict
+aggrip -i raw_ips.txt -o optimized_cidrs.txt -s -v
+```
+
+### 4. undup
+
+**Blazing Fast Binary-Level Domain Deduplicator** A highly specialized, low-latency deduplication engine that removes redundant subdomains when their parent domains exist in the same feed.
+
+**Key Features:**
+
+* **Zero-Copy Byte Parsing:** Reads entirely from bytes arrays without heavy string allocations to maximize parsing throughput.
+* **Concurrent Reversals:** Shards string reversal workloads across all available CPU cores automatically for parallel processing.
+* **Strict Validation Bypass:** High-speed inline structural validation completely circumvents slow regex engine overhead.
+* **Flexible I/O:** Supports standard UNIX piping or direct high-speed file streams.
+
+**Usage Example:**
+
+```bash
+# Fast deduplication with UNIX pipes
+cat domains.txt | undup > unique_domains.txt
+
+# File I/O with less-strict parsing
+undup -i mixed_domains.txt -o clean_domains.txt -l -v
 ```
 
 ## Building from Source
 
-Requires Go 1.25.0+ for `clean-dom`, Go 1.21+ for `clean-ip`, and Go 1.22+ for `aggrip`.
+Requires Go 1.25.0+ for `clean-dom`, Go 1.21+ for `clean-ip`, and Go 1.22+ for `aggrip` and `undup`.
 
 ```bash
 # Build clean-dom
@@ -90,5 +111,9 @@ go build -ldflags="-s -w" -o clean-ip main.go
 # Build aggrip
 cd ../aggrip
 go build -ldflags="-s -w" -o aggrip main.go
+
+# Build undup
+cd ../undup
+go build -ldflags="-s -w" -o undup main.go
 ```
 

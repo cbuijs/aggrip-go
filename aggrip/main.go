@@ -1,19 +1,23 @@
-// ==========================================================================
-// Filename: main.go
-// Version: v0.18-20260423
-// Date: 2026-04-23 10:56 CEST
-// Update Trail:
-//   - v0.18-20260423: Standardized CLI parameters. Implemented double-dash
-//                     for long flags and single-dash for short flags. Added
-//                     customized flag.Usage output to expose all options clearly.
-//   - v0.17-20260423: Added command-line flags (-i, -o, -s, -v) to extend 
-//                     usability beyond standard UNIX pipes.
-//   - v0.16-20260423: Initial Go translation from aggrip.py. Implemented 
-//                     high-speed slice-based CIDR aggregation via net/netip.
-// Description: High-performance Go utility to aggregate IPs into a CIDR list.
-//              Reads a raw list of IP addresses and CIDR blocks and outputs 
-//              a merged, optimized CIDR list.
-// ==========================================================================
+/*
+==========================================================================
+Filename: aggrip/main.go
+Version: v0.19-20260423
+Date: 2026-04-23 11:29 CEST
+Update Trail:
+  - v0.19-20260423: Standardized CLI parameters across all tools. Adopted 
+                    -v for verbose, -V for version, and -h for help.
+  - v0.18-20260423: Standardized CLI parameters. Implemented double-dash
+                    for long flags and single-dash for short flags. Added
+                    customized flag.Usage output to expose all options clearly.
+  - v0.17-20260423: Added command-line flags (-i, -o, -s, -v) to extend 
+                    usability beyond standard UNIX pipes.
+  - v0.16-20260423: Initial Go translation from aggrip.py. Implemented 
+                    high-speed slice-based CIDR aggregation via net/netip.
+Description: High-performance Go utility to aggregate IPs into a CIDR list.
+             Reads a raw list of IP addresses and CIDR blocks and outputs 
+             a merged, optimized CIDR list.
+==========================================================================
+*/
 
 package main
 
@@ -33,10 +37,12 @@ var (
 	inputFile   string
 	outputFile  string
 	strictMode  bool
+	verbose     bool
 	showVersion bool
 )
 
 // init registers the command-line flags before main() executes.
+// Standardizes short (-x) and long (--xyz) formats across the suite.
 func init() {
 	// Standardize on double-dash long flags and single-dash short flags.
 	flag.StringVar(&inputFile, "input", "", "Input file path (default: STDIN)")
@@ -48,8 +54,11 @@ func init() {
 	flag.BoolVar(&strictMode, "strict", false, "Strict mode: drop invalid CIDRs instead of truncating host bits")
 	flag.BoolVar(&strictMode, "s", false, "Short for --strict")
 
+	flag.BoolVar(&verbose, "verbose", false, "Enable verbose output to STDERR")
+	flag.BoolVar(&verbose, "v", false, "Short for --verbose")
+
 	flag.BoolVar(&showVersion, "version", false, "Show version information and exit")
-	flag.BoolVar(&showVersion, "v", false, "Short for --version")
+	flag.BoolVar(&showVersion, "V", false, "Short for --version")
 	
 	// Custom usage output for the CLI tool to clearly map short and long flags
 	flag.Usage = func() {
@@ -58,9 +67,19 @@ func init() {
 		fmt.Fprintf(os.Stderr, "  -i, --input <path>     Input file path (default: STDIN)\n")
 		fmt.Fprintf(os.Stderr, "  -o, --output <path>    Output file path (default: STDOUT)\n")
 		fmt.Fprintf(os.Stderr, "  -s, --strict           Strict mode: drop invalid CIDRs instead of truncating host bits\n")
-		fmt.Fprintf(os.Stderr, "  -v, --version          Show version information and exit\n")
+		fmt.Fprintf(os.Stderr, "  -v, --verbose          Enable verbose output to STDERR\n")
+		fmt.Fprintf(os.Stderr, "  -V, --version          Show version information and exit\n")
+		fmt.Fprintf(os.Stderr, "  -h, --help             Show this help message\n")
 		fmt.Fprintf(os.Stderr, "\nExample:\n")
-		fmt.Fprintf(os.Stderr, "  aggrip -i raw_ips.txt -o optimized_cidrs.txt --strict\n")
+		fmt.Fprintf(os.Stderr, "  aggrip -i raw_ips.txt -o optimized_cidrs.txt -s -v\n")
+	}
+}
+
+// logMsg prints diagnostic messages to STDERR if verbose mode is active.
+// Keeps standard output completely clean for pipeline chaining.
+func logMsg(msg string, args ...any) {
+	if verbose {
+		fmt.Fprintf(os.Stderr, "[*] "+msg+"\n", args...)
 	}
 }
 
@@ -71,7 +90,7 @@ func main() {
 
 	// Handle version output and exit early if requested.
 	if showVersion {
-		fmt.Println("aggrip Go Edition - Version v0.18-20260423")
+		fmt.Println("aggrip Go Edition - Version v0.19-20260423")
 		os.Exit(0)
 	}
 
@@ -86,6 +105,7 @@ func main() {
 			os.Exit(1)
 		}
 		defer inStream.Close()
+		logMsg("Input stream opened: %s", inputFile)
 	}
 
 	// Default to STDOUT. If an output file is provided, create it and replace the stream.
@@ -98,6 +118,7 @@ func main() {
 			os.Exit(1)
 		}
 		defer outStream.Close()
+		logMsg("Output stream mapped to: %s", outputFile)
 	}
 
 	// Pre-allocate memory arrays to handle up to 100,000 inputs without needing 
@@ -112,8 +133,12 @@ func main() {
 	buf := make([]byte, 64*1024)
 	scanner.Buffer(buf, 1024*1024)
 
+	logMsg("Beginning high-speed ingestion and validation...")
+
 	// --- Stage 2: Ingestion & Parsing ---
+	linesProcessed := 0
 	for scanner.Scan() {
+		linesProcessed++
 		line := strings.TrimSpace(scanner.Text())
 
 		// Skip empty lines to preserve CPU cycles.
@@ -143,10 +168,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	logMsg("Ingested %d valid prefixes from %d total lines", len(v4Networks)+len(v6Networks), linesProcessed)
+
 	// --- Stage 3: Subnet Aggregation / Collapsing ---
 	// Process IPv4 and IPv6 streams independently in memory.
+	logMsg("Running O(N log N) aggregation stack algorithm...")
 	mergedV4 := mergePrefixes(v4Networks)
 	mergedV6 := mergePrefixes(v6Networks)
+
+	logMsg("Aggregation complete. Final IPv4 size: %d, IPv6 size: %d", len(mergedV4), len(mergedV6))
 
 	// --- Stage 4: Pipeline Output ---
 	// Wrapping the output stream in a bufio.Writer drastically speeds up IPC streaming 
@@ -160,6 +190,7 @@ func main() {
 	for _, p := range mergedV6 {
 		writer.WriteString(p.String() + "\n")
 	}
+	logMsg("Pipeline execution finished successfully.")
 }
 
 // parsePrefix evaluates string inputs into zero-allocation netip.Prefix objects.
