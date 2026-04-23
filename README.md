@@ -48,9 +48,35 @@ go run clean-dom/main.go --blocklist [https://example.com/ads.txt](https://examp
 go run clean-ip/main.go --blocklist drop.txt --allowlist allow.txt -o iptables --out-blocklist rules.v4
 ```
 
+### 3. aggrip
+
+**High-Speed IP to CIDR Aggregator** A streamlined, high-performance pipeline utility to ingest raw lists of IP addresses and CIDR blocks, outputting a merged and mathematically optimized CIDR list.
+
+**Key Features:**
+
+* **Stream Processing:** Designed for standard UNIX pipes (`STDIN`/`STDOUT`) with optional file flags (`-i`, `-o`) for massive datasets.
+
+* **O(N log N) Compression:** Merges redundant or contiguous CIDR subnets using a high-speed sorting-stack algorithm.
+
+* **Zero-Allocation Parsing:** Utilizes Go's native `net/netip` package for highly efficient, memory-safe IP and prefix evaluation.
+
+* **Strict Boundary Enforcement:** Optional strict mode (`-s`) automatically drops invalid CIDRs instead of implicitly truncating dirty host bits.
+
+* **Dual Stack Independence:** Processes and segregates IPv4 and IPv6 streams mathematically to prevent cross-boundary collisions.
+
+**Usage Example:**
+
+```bash
+# Standard UNIX piping
+cat raw_ips.txt | go run aggrip/main.go > optimized_cidrs.txt
+
+# Direct file I/O with strict boundary enforcement
+go run aggrip/main.go -i raw_ips.txt -o optimized_cidrs.txt -s
+```
+
 ## Building from Source
 
-Requires Go 1.25.0+ for `clean-dom` and Go 1.21+ for `clean-ip`.
+Requires Go 1.25.0+ for `clean-dom`, Go 1.21+ for `clean-ip`, and Go 1.22+ for `aggrip`.
 
 ```bash
 # Build clean-dom
@@ -60,4 +86,10 @@ go build -ldflags="-s -w" -o clean-dom main.go
 # Build clean-ip
 cd ../clean-ip
 go build -ldflags="-s -w" -o clean-ip main.go
+
+# Build aggrip
+cd ../aggrip
+go build -ldflags="-s -w" -o aggrip main.go
+```
+
 
