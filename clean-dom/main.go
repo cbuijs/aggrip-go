@@ -1,9 +1,11 @@
 /*
 ==========================================================================
 Filename: clean-dom/main.go
-Version: 1.1.1-20260424
-Date: 2026-04-24 09:59 CEST
+Version: 1.1.2-20260424
+Date: 2026-04-24 10:20 CEST
 Update Trail:
+  - 1.1.2 (2026-04-24): Dropped forceAllow parameter from processing pipeline. 
+                        Relying on native file-type mapping.
   - 1.1.1 (2026-04-24): Added strict Adblock domain parsing (rejects paths),
                         dynamic format switching from mixed to adblock, and
                         explicit $denyallow extraction logging.
@@ -149,7 +151,7 @@ func main() {
 	flag.Parse()
 
 	if showVersion {
-		fmt.Println("clean-dom Go Edition - Version 1.1.1-20260424")
+		fmt.Println("clean-dom Go Edition - Version 1.1.2-20260424")
 		os.Exit(0)
 	}
 
@@ -176,12 +178,12 @@ func main() {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
-	processList := func(list []string, isTopN bool, forceAllow bool, listType string) {
+	processList := func(list []string, isTopN bool, listType string) {
 		for _, source := range list {
 			wg.Add(1)
 			go func(s string) {
 				defer wg.Done()
-				res := readDomainsBulk(s, isTopN, forceAllow, listType)
+				res := readDomainsBulk(s, isTopN, listType)
 				mu.Lock()
 				blockDomains = append(blockDomains, res.Blocks...)
 				for _, a := range res.Allows {
@@ -196,12 +198,12 @@ func main() {
 		}
 	}
 
-	processList(blocklists, false, false, "Blocklist")
+	processList(blocklists, false, "Blocklist")
 	wg.Wait()
 
 	if len(allowlists) > 0 {
 		logMsg("Consolidating Allowlists...")
-		processList(allowlists, false, true, "Allowlist")
+		processList(allowlists, false, "Allowlist")
 		wg.Wait()
 	}
 
@@ -210,7 +212,7 @@ func main() {
 		logMsg("Consolidating Top-N Lists...")
 		var topNBlocks []string
 		for _, source := range topnlists {
-			res := readDomainsBulk(source, true, false, "Top-N")
+			res := readDomainsBulk(source, true, "Top-N")
 			topNBlocks = append(topNBlocks, res.Blocks...)
 		}
 		for _, b := range topNBlocks {

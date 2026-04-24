@@ -1,11 +1,19 @@
 /*
 ==========================================================================
 Filename: clean-dom/parser.go
-Version: 1.1.1-20260424
-Date: 2026-04-24 09:59 CEST
+Version: 1.1.3-20260424
+Date: 2026-04-24 10:20 CEST
 Description: Handles file I/O, format detection, Adblock translation, 
              and parallel bulk ingestion of raw list payloads. Strict
              path rejection protects DNS zone integrity.
+
+Update Trail:
+  - 1.1.3 (2026-04-24): Removed forceAllow from parseDomainToken. Token 
+                        parsing is now completely context-agnostic.
+  - 1.1.2 (2026-04-24): Fixed $denyallow modifier logic. Enforces strict 
+                        subdomain validation, ignores contradictory modifiers 
+                        on allowlist rules, and correctly maps extracted 
+                        denyallow targets directly to the allowlist pipeline.
 ==========================================================================
 */
 
@@ -140,72 +148,43 @@ func isASCII(s string) bool {
 	return true
 }
 
-// parseDomainToken evaluates Adblock rules, extracts modifiers ($denyallow), and ensures Punycode translation.
+// parseDomainToken evaluates Adblock rules, extracts modifiers ($denyallow), ensures Punycode translation,
+// and strictly guarantees logical mapping and parent-subdomain relationship integrities natively.
 func parseDomainToken(token string) parseResult {
+	origToken := token
 	res := parseResult{
-		OriginalToken:       token,
+		OriginalToken:       origToken,
 		DenyAllow:           []string{},
 		DenyAllowUnicodeMap: make(map[string]string),
 	}
 
-	// Strictly map specific blocklist and allowlist configurations natively.
+	// 1. Strictly map specific blocklist and allowlist configurations natively.
 	if strings.HasPrefix(token, "@@") {
 		res.IsAllow = true
 		token = token[2:]
 	}
 
-	// Drop regex rules natively.
+	// 2. Drop regex rules natively to maintain strict DNS zone integrity.
 	if strings.HasPrefix(token, "/") {
 		return res
 	}
 
+	// 3. Extract the base domain target and segment out the modifiers cleanly.
 	domainPart := token
+	modifiers := ""
 	if strings.Contains(token, "$") {
 		parts := strings.SplitN(token, "$", 2)
 		domainPart = parts[0]
-		modifiers := parts[1]
-
-		for _, mod := range strings.Split(modifiers, ",") {
-			mod = strings.TrimSpace(mod)
-			if strings.HasPrefix(mod, "denyallow=") {
-				targets := strings.Split(mod[10:], "|")
-				for _, da := range targets {
-					cleanDa := normalizeDomain(da)
-					punyDa := cleanDa
-					var daOrig string
-
-					if cleanDa != "" && !isASCII(cleanDa) {
-						if p, err := idna.ToASCII(cleanDa); err == nil {
-							punyDa = p
-							daOrig = cleanDa
-						} else {
-							punyDa = ""
-						}
-					}
-
-					if cleanDa != "" && punyDa != "" {
-						valid := !isFastIP(punyDa) && isPlausibleDomain(punyDa)
-						if valid {
-							res.DenyAllow = append(res.DenyAllow, punyDa)
-							if daOrig != "" {
-								res.DenyAllowUnicodeMap[punyDa] = daOrig
-							}
-						}
-					}
-				}
-			} else if mod != "" {
-				// Contains strict unrelated modifiers; dump the rule to be absolutely safe.
-				return res
-			}
-		}
+		modifiers = parts[1]
 	}
 
-	// Strict Adblock restriction: Only accept clean domains/hostnames.
+	// 4. Strict Adblock restriction: Only accept clean domains/hostnames.
 	// If the domain part contains a path (indicated by a slash), drop it completely.
 	if strings.Contains(domainPart, "/") {
 		return res
 	}
 
+	// 5. Clean and translate base domain via IDNA natively.
 	cleanDom := normalizeDomain(domainPart)
 	punyDom := cleanDom
 	var domOrig string
@@ -228,8 +207,65 @@ func parseDomainToken(token string) parseResult {
 		punyDom = ""
 	}
 
+	// If the core base domain is mathematically invalid or empty, we abort the entire rule.
+	if punyDom == "" {
+		return res
+	}
+
 	res.Domain = punyDom
 	res.UnicodeOrig = domOrig
+
+	// 6. Process Modifiers and strictly validate $denyallow logic and relationships.
+	if modifiers != "" {
+		for _, mod := range strings.Split(modifiers, ",") {
+			mod = strings.TrimSpace(mod)
+			if strings.HasPrefix(mod, "denyallow=") {
+				
+				// Logical Collision Check: Discard $denyallow parameters if the base rule is an allowlist rule.
+				if res.IsAllow {
+					logMsg(fmt.Sprintf("Warning: Ignored contradictory $denyallow modifier in allowlist rule: '%s'", origToken))
+					continue
+				}
+
+				targets := strings.Split(mod[10:], "|")
+				for _, da := range targets {
+					cleanDa := normalizeDomain(da)
+					punyDa := cleanDa
+					var daOrig string
+
+					if cleanDa != "" && !isASCII(cleanDa) {
+						if p, err := idna.ToASCII(cleanDa); err == nil {
+							punyDa = p
+							daOrig = cleanDa
+						} else {
+							punyDa = ""
+						}
+					}
+
+					if cleanDa != "" && punyDa != "" {
+						valid := !isFastIP(punyDa) && isPlausibleDomain(punyDa)
+						if valid {
+							// Subdomain Integrity Check: Exclusions MUST fall beneath the base domain.
+							// For example, if blocking 'domain.com', allowlisting 'other.com' via denyallow is invalid.
+							if punyDa == punyDom || strings.HasSuffix(punyDa, "."+punyDom) {
+								res.DenyAllow = append(res.DenyAllow, punyDa)
+								if daOrig != "" {
+									res.DenyAllowUnicodeMap[punyDa] = daOrig
+								}
+							} else {
+								logMsg(fmt.Sprintf("Warning: Ignored $denyallow entry '%s' as it is not a valid subdomain of base '%s' in rule '%s'", punyDa, punyDom, origToken))
+							}
+						}
+					}
+				}
+			} else if mod != "" {
+				// The rule contains strict unrelated modifiers we don't support (like $third-party).
+				// We dump the entire rule to be absolutely safe and prevent false positives.
+				return parseResult{}
+			}
+		}
+	}
+
 	return res
 }
 
@@ -270,7 +306,7 @@ func fetchLines(source string) ([]string, error) {
 }
 
 // readDomainsBulk orchestrates ingestion, heuristic format evaluation, and data extraction.
-func readDomainsBulk(source string, isTopN bool, forceAllow bool, listType string) ParsedLists {
+func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 	var result ParsedLists
 	lines, err := fetchLines(source)
 	if err != nil {
@@ -301,9 +337,11 @@ func readDomainsBulk(source string, isTopN bool, forceAllow bool, listType strin
 		}
 	}
 
+	isAllowList := (listType == "Allowlist")
+
 	processParsed := func(parsed parseResult, rawToken string) {
 		if parsed.Domain != "" {
-			if parsed.IsAllow || forceAllow {
+			if parsed.IsAllow || isAllowList {
 				result.Allows = append(result.Allows, parsed.Domain)
 			} else {
 				result.Blocks = append(result.Blocks, parsed.Domain)
@@ -314,15 +352,17 @@ func readDomainsBulk(source string, isTopN bool, forceAllow bool, listType strin
 		}
 
 		if len(parsed.DenyAllow) > 0 {
-			logMsg(fmt.Sprintf("Ingestion: Extracted $denyallow domain(s) %v from rule '%s'", parsed.DenyAllow, rawToken))
-			if parsed.IsAllow || forceAllow {
-				result.Blocks = append(result.Blocks, parsed.DenyAllow...)
-				result.DenyAllows = append(result.DenyAllows, parsed.DenyAllow...)
+			if isAllowList {
+				logMsg(fmt.Sprintf("Warning: Ignored $denyallow targets %v from allowlist file rule '%s' (redundant).", parsed.DenyAllow, rawToken))
 			} else {
+				logMsg(fmt.Sprintf("Ingestion: Extracted validated $denyallow domain(s) %v from block rule '%s'. Adding to allowlist.", parsed.DenyAllow, rawToken))
+				
+				// $denyallow domains extracted strictly from a blocklist rule act as explicit allowlist overrides.
 				result.Allows = append(result.Allows, parsed.DenyAllow...)
-			}
-			for puny, orig := range parsed.DenyAllowUnicodeMap {
-				result.Conversions = append(result.Conversions, fmt.Sprintf("# %s - Converted from Unicode: %s", puny, orig))
+				
+				for puny, orig := range parsed.DenyAllowUnicodeMap {
+					result.Conversions = append(result.Conversions, fmt.Sprintf("# %s - Converted from Unicode: %s", puny, orig))
+				}
 			}
 		}
 	}
