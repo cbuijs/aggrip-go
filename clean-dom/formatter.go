@@ -1,16 +1,25 @@
 /*
 ==========================================================================
 Filename: clean-dom/formatter.go
-Version: 1.1.5-20260424
-Date: 2026-04-24 10:46 CEST
+Version: 1.1.9-20260424
+Date: 2026-04-24 11:25 CEST
 Description: Handles deduplication, formatting, layout mapping, output 
              generation, comment injection, and disk writing operations.
 
 Update Trail:
-  - 1.1.5 (2026-04-24): Mapped unused allowlist comments to strictly 
-                        export to the allowlist output file instead of 
-                        polluting the blocklist log natively. Fixed empty 
-                        payload file skips.
+  - 1.1.9 (2026-04-24): Resolved function redeclaration conflict. Renamed 
+                        extractDomainForSort to extractSortKey natively to 
+                        prevent collision with validator.go.
+  - 1.1.8 (2026-04-24): Enforced unified file priority sequence. Allowlist 
+                        entries are now strictly guaranteed to output before 
+                        blocklist entries across all supporting formats 
+                        (Adblock, RPZ, Dnsmasq, Unbound). Adblock natively 
+                        deduplicates @@|| when $denyallow is active.
+  - 1.1.7 (2026-04-24): Refactored Dnsmasq and Unbound formatting to strictly 
+                        output unified configs. Allowlist entries are mapped 
+                        directly to the top of the generated config payload 
+                        using server=/domain/# and transparent parameters.
+                        Switched Dnsmasq blocks to server=/domain/ natively.
 ==========================================================================
 */
 
@@ -162,9 +171,10 @@ func buildOutputs(
 					hasBlockedParent = true
 					usedAllows[allowDom] = struct{}{}
 
-					if outputFmt == "all" || outputFmt == "domain" || outputFmt == "dnsmasq" || outputFmt == "unbound" || outputFmt == "rpz" || outputFmt == "routedns" || outputFmt == "squid" {
+					// Subdomains unblocked within a blocked parent scope act logarithmically differently than standard files
+					if outputFmt != "hosts" {
 						if !suppressComments {
-							removedLogParentBlocked = append(removedLogParentBlocked, fmt.Sprintf("# %s - Allowlisted but blocked by parent domain %s", allowDom, parent))
+							removedLogParentBlocked = append(removedLogParentBlocked, fmt.Sprintf("# %s - Allowlisted sub-domain explicitly mapped against blocked parent %s", allowDom, parent))
 						}
 						statsAllowIgnored++
 					}
@@ -280,16 +290,31 @@ func buildOutputs(
 			}
 		}
 
+		// Dynamically reroute the allowlist payload directly into the blocklist output file 
+		// explicitly for unified configuration structures (Dnsmasq, Unbound, Adblock, RPZ).
+		var targetAllow *os.File
 		if outAllow != nil {
+			targetAllow = outAllow
 			if fmtType == "adblock" {
-				outAllow.WriteString(fmt.Sprintf("[Adblock Plus]\n! version: %d\n", time.Now().Unix()))
+				targetAllow.WriteString(fmt.Sprintf("[Adblock Plus]\n! version: %d\n", time.Now().Unix()))
 			} else if fmtType == "rpz" {
-				outAllow.WriteString("$TTL 3600\n@ IN SOA localhost. root.localhost. 1 3600 900 2592000 300\n")
+				targetAllow.WriteString("$TTL 3600\n@ IN SOA localhost. root.localhost. 1 3600 900 2592000 300\n")
 			}
+		} else if outBlock != nil && (fmtType == "dnsmasq" || fmtType == "unbound" || fmtType == "adblock" || fmtType == "rpz") {
+			targetAllow = outBlock
+		}
 
+		if targetAllow != nil && hasAllowPayload {
 			var allowSlice []string
-			for k := range finalAllows {
-				allowSlice = append(allowSlice, k)
+
+			// In unified Adblock output, we use standaloneAllows to prevent 
+			// redundant @@|| rules for domains already mapped to $denyallow overrides.
+			if fmtType == "adblock" && outAllow == nil {
+				allowSlice = append(allowSlice, standaloneAllows...)
+			} else {
+				for k := range finalAllows {
+					allowSlice = append(allowSlice, k)
+				}
 			}
 
 			// Inject the unused allowlist comments into the allowlist slice directly
@@ -299,8 +324,8 @@ func buildOutputs(
 
 			// Sort the allowlist organically pulling comments above their functional nodes
 			sort.Slice(allowSlice, func(i, j int) bool {
-				cleanI := extractDomainForSort(allowSlice[i])
-				cleanJ := extractDomainForSort(allowSlice[j])
+				cleanI := extractSortKey(allowSlice[i])
+				cleanJ := extractSortKey(allowSlice[j])
 
 				var cmpI, cmpJ string
 				if sortAlgo == "alphabetically" {
@@ -327,30 +352,29 @@ func buildOutputs(
 					cleanComment := strings.TrimSpace(strings.TrimPrefix(item, "#"))
 					switch fmtType {
 					case "adblock":
-						outAllow.WriteString(fmt.Sprintf("! %s\n", cleanComment))
+						targetAllow.WriteString(fmt.Sprintf("! %s\n", cleanComment))
 					case "rpz":
-						outAllow.WriteString(fmt.Sprintf("; %s\n", cleanComment))
+						targetAllow.WriteString(fmt.Sprintf("; %s\n", cleanComment))
 					default:
-						outAllow.WriteString(fmt.Sprintf("# %s\n", cleanComment))
+						targetAllow.WriteString(fmt.Sprintf("# %s\n", cleanComment))
 					}
 					continue
 				}
 
 				switch fmtType {
 				case "adblock":
-					outAllow.WriteString(fmt.Sprintf("@@||%s^\n", item))
+					targetAllow.WriteString(fmt.Sprintf("@@||%s^\n", item))
 				case "rpz":
-					outAllow.WriteString(fmt.Sprintf("%s CNAME rpz-passthru.\n*.%s CNAME rpz-passthru.\n", item, item))
+					targetAllow.WriteString(fmt.Sprintf("%s CNAME rpz-passthru.\n*.%s CNAME rpz-passthru.\n", item, item))
 				case "routedns", "squid":
-					outAllow.WriteString(fmt.Sprintf(".%s\n", item))
+					targetAllow.WriteString(fmt.Sprintf(".%s\n", item))
+				case "dnsmasq":
+					targetAllow.WriteString(fmt.Sprintf("server=/%s/#\n", item))
+				case "unbound":
+					targetAllow.WriteString(fmt.Sprintf("local-zone: \"%s\" transparent\n", item))
 				default:
-					outAllow.WriteString(fmt.Sprintf("%s\n", item))
+					targetAllow.WriteString(fmt.Sprintf("%s\n", item))
 				}
-			}
-		} else if fmtType == "adblock" && len(standaloneAllows) > 0 && outBlock != nil {
-			sort.Strings(standaloneAllows)
-			for _, dom := range standaloneAllows {
-				outBlock.WriteString(fmt.Sprintf("@@||%s^\n", dom))
 			}
 		}
 
@@ -366,6 +390,14 @@ func buildOutputs(
 				}
 			}
 
+			// Safely merge standalone allowlist rules directly into output array 
+			// natively for Adblock format when unified output is requested.
+			if fmtType == "adblock" && outAllow == nil {
+				for _, dom := range standaloneAllows {
+					outputItems = append(outputItems, "@@||"+dom)
+				}
+			}
+
 			if !suppressComments {
 				outputItems = append(outputItems, removedLogInvalids...)
 				outputItems = append(outputItems, removedLogGeneral...)
@@ -375,7 +407,8 @@ func buildOutputs(
 				}
 				
 				// Only map unused allows to the blocklist if a separate allowlist file was NOT generated
-				if outAllow == nil {
+				// AND we didn't explicitly route them dynamically to outBlock natively via targetAllow priority.
+				if outAllow == nil && fmtType != "dnsmasq" && fmtType != "unbound" && fmtType != "adblock" && fmtType != "rpz" {
 					outputItems = append(outputItems, removedLogUnusedAllows...)
 				}
 				
@@ -400,8 +433,8 @@ func buildOutputs(
 			}
 
 			sort.Slice(outputItems, func(i, j int) bool {
-				cleanI := extractDomainForSort(outputItems[i])
-				cleanJ := extractDomainForSort(outputItems[j])
+				cleanI := extractSortKey(outputItems[i])
+				cleanJ := extractSortKey(outputItems[j])
 
 				var cmpI, cmpJ string
 				if sortAlgo == "alphabetically" {
@@ -444,7 +477,7 @@ func buildOutputs(
 					case "hosts":
 						outBlock.WriteString(fmt.Sprintf("0.0.0.0 %s\n", item))
 					case "dnsmasq":
-						outBlock.WriteString(fmt.Sprintf("address=/%s/0.0.0.0\n", item))
+						outBlock.WriteString(fmt.Sprintf("server=/%s/\n", item))
 					case "unbound":
 						outBlock.WriteString(fmt.Sprintf("local-zone: \"%s\" always_nxdomain\n", item))
 					case "rpz":
@@ -480,7 +513,7 @@ func buildOutputs(
 		if optimizeAllow {
 			logMsg(fmt.Sprintf("Dropped (Unused Allows)     : %d", statsUnusedAllows))
 		}
-		if outputFmt == "all" || outputFmt == "domain" || outputFmt == "dnsmasq" || outputFmt == "unbound" || outputFmt == "rpz" || outputFmt == "routedns" || outputFmt == "squid" {
+		if outputFmt != "hosts" {
 			logMsg(fmt.Sprintf("Ignored Allows (Blocked)    : %d", statsAllowIgnored))
 		}
 		logMsg("----------------------------------------------------")
@@ -501,5 +534,17 @@ func validAllowDomainsCounter(allowDomains map[string]struct{}, lessStrict bool,
 		}
 	}
 	return valid
+}
+
+// extractSortKey strictly pulls the root domain from a string array index safely handling comments and Adblock prefixes
+func extractSortKey(item string) string {
+	if strings.HasPrefix(item, "#") {
+		clean := strings.TrimSpace(strings.TrimPrefix(item, "#"))
+		return strings.SplitN(clean, " - ", 2)[0]
+	}
+	if strings.HasPrefix(item, "@@||") {
+		return strings.TrimPrefix(item, "@@||")
+	}
+	return item
 }
 
