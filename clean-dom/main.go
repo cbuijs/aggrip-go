@@ -1,11 +1,13 @@
 /*
 ==========================================================================
 Filename: clean-dom/main.go
-Version: 1.1.2-20260424
-Date: 2026-04-24 10:20 CEST
+Version: 1.1.4-20260424
+Date: 2026-04-24 10:33 CEST
 Update Trail:
-  - 1.1.2 (2026-04-24): Dropped forceAllow parameter from processing pipeline. 
+  - 1.1.4 (2026-04-24): Version sync with parser.go block intent updates.
+  - 1.1.3 (2026-04-24): Dropped forceAllow parameter from processing pipeline. 
                         Relying on native file-type mapping.
+  - 1.1.2 (2026-04-24): Synchronized with parser.go $denyallow fixes.
   - 1.1.1 (2026-04-24): Added strict Adblock domain parsing (rejects paths),
                         dynamic format switching from mixed to adblock, and
                         explicit $denyallow extraction logging.
@@ -151,7 +153,7 @@ func main() {
 	flag.Parse()
 
 	if showVersion {
-		fmt.Println("clean-dom Go Edition - Version 1.1.2-20260424")
+		fmt.Println("clean-dom Go Edition - Version 1.1.4-20260424")
 		os.Exit(0)
 	}
 

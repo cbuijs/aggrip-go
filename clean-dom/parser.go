@@ -1,13 +1,17 @@
 /*
 ==========================================================================
 Filename: clean-dom/parser.go
-Version: 1.1.3-20260424
-Date: 2026-04-24 10:20 CEST
+Version: 1.1.4-20260424
+Date: 2026-04-24 10:30 CEST
 Description: Handles file I/O, format detection, Adblock translation, 
              and parallel bulk ingestion of raw list payloads. Strict
              path rejection protects DNS zone integrity.
 
 Update Trail:
+  - 1.1.4 (2026-04-24): Added explicit block intent parsing. Adblock syntax 
+                        (||) now strictly overrides file-level defaults, 
+                        routing base domains and $denyallow targets 
+                        correctly regardless of the source file type.
   - 1.1.3 (2026-04-24): Removed forceAllow from parseDomainToken. Token 
                         parsing is now completely context-agnostic.
   - 1.1.2 (2026-04-24): Fixed $denyallow modifier logic. Enforces strict 
@@ -48,6 +52,7 @@ type ParsedLists struct {
 type parseResult struct {
 	Domain              string
 	IsAllow             bool
+	IsBlock             bool // Captures explicit block intent (e.g., ||)
 	DenyAllow           []string
 	OriginalToken       string
 	UnicodeOrig         string
@@ -159,9 +164,12 @@ func parseDomainToken(token string) parseResult {
 	}
 
 	// 1. Strictly map specific blocklist and allowlist configurations natively.
+	// Adblock explicit rule intents ALWAYS override file-level routing.
 	if strings.HasPrefix(token, "@@") {
 		res.IsAllow = true
 		token = token[2:]
+	} else if strings.HasPrefix(token, "||") {
+		res.IsBlock = true
 	}
 
 	// 2. Drop regex rules natively to maintain strict DNS zone integrity.
@@ -221,9 +229,9 @@ func parseDomainToken(token string) parseResult {
 			mod = strings.TrimSpace(mod)
 			if strings.HasPrefix(mod, "denyallow=") {
 				
-				// Logical Collision Check: Discard $denyallow parameters if the base rule is an allowlist rule.
+				// Logical Collision Check: Discard $denyallow parameters if the base rule is an explicit allowlist rule.
 				if res.IsAllow {
-					logMsg(fmt.Sprintf("Warning: Ignored contradictory $denyallow modifier in allowlist rule: '%s'", origToken))
+					logMsg(fmt.Sprintf("Warning: Ignored contradictory $denyallow modifier in explicit allowlist rule: '%s'", origToken))
 					continue
 				}
 
@@ -340,8 +348,11 @@ func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 	isAllowList := (listType == "Allowlist")
 
 	processParsed := func(parsed parseResult, rawToken string) {
+		// Evaluate the true intent by letting explicit Adblock syntax override the default file type context natively.
+		isEffectivelyAllow := parsed.IsAllow || (isAllowList && !parsed.IsBlock)
+
 		if parsed.Domain != "" {
-			if parsed.IsAllow || isAllowList {
+			if isEffectivelyAllow {
 				result.Allows = append(result.Allows, parsed.Domain)
 			} else {
 				result.Blocks = append(result.Blocks, parsed.Domain)
@@ -352,8 +363,8 @@ func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 		}
 
 		if len(parsed.DenyAllow) > 0 {
-			if isAllowList {
-				logMsg(fmt.Sprintf("Warning: Ignored $denyallow targets %v from allowlist file rule '%s' (redundant).", parsed.DenyAllow, rawToken))
+			if isEffectivelyAllow {
+				logMsg(fmt.Sprintf("Warning: Ignored $denyallow targets %v from allowlist rule '%s' (redundant).", parsed.DenyAllow, rawToken))
 			} else {
 				logMsg(fmt.Sprintf("Ingestion: Extracted validated $denyallow domain(s) %v from block rule '%s'. Adding to allowlist.", parsed.DenyAllow, rawToken))
 				
