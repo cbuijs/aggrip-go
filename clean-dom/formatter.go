@@ -1,10 +1,16 @@
 /*
 ==========================================================================
 Filename: clean-dom/formatter.go
-Version: 1.1.0-20260424
-Date: 2026-04-24 09:16 CEST
+Version: 1.1.5-20260424
+Date: 2026-04-24 10:46 CEST
 Description: Handles deduplication, formatting, layout mapping, output 
              generation, comment injection, and disk writing operations.
+
+Update Trail:
+  - 1.1.5 (2026-04-24): Mapped unused allowlist comments to strictly 
+                        export to the allowlist output file instead of 
+                        polluting the blocklist log natively. Fixed empty 
+                        payload file skips.
 ==========================================================================
 */
 
@@ -186,7 +192,7 @@ func buildOutputs(
 			}
 			if _, ok := usedAllows[dom]; !ok {
 				if !suppressComments {
-					removedLogUnusedAllows = append(removedLogUnusedAllows, fmt.Sprintf("# %s - Removed from allowlist because it is unused", dom))
+					removedLogUnusedAllows = append(removedLogUnusedAllows, fmt.Sprintf("# %s - Removed from allowlist because it is unused (does not unblock any blacklisted domains)", dom))
 				}
 			}
 		}
@@ -199,7 +205,7 @@ func buildOutputs(
 		}
 	}
 
-	hasAllowPayload := len(finalAllows) > 0
+	hasAllowPayload := len(finalAllows) > 0 || (optimizeAllow && !suppressComments && len(removedLogUnusedAllows) > 0)
 	outputFormats := []string{outputFmt}
 	if outputFmt == "all" {
 		outputFormats = []string{"domain", "hosts", "adblock", "dnsmasq", "unbound", "rpz", "routedns", "squid"}
@@ -285,18 +291,60 @@ func buildOutputs(
 			for k := range finalAllows {
 				allowSlice = append(allowSlice, k)
 			}
-			sort.Strings(allowSlice)
 
-			for _, dom := range allowSlice {
+			// Inject the unused allowlist comments into the allowlist slice directly
+			if !suppressComments {
+				allowSlice = append(allowSlice, removedLogUnusedAllows...)
+			}
+
+			// Sort the allowlist organically pulling comments above their functional nodes
+			sort.Slice(allowSlice, func(i, j int) bool {
+				cleanI := extractDomainForSort(allowSlice[i])
+				cleanJ := extractDomainForSort(allowSlice[j])
+
+				var cmpI, cmpJ string
+				if sortAlgo == "alphabetically" {
+					cmpI = cleanI
+					cmpJ = cleanJ
+				} else {
+					cmpI = reverseStr(cleanI)
+					cmpJ = reverseStr(cleanJ)
+				}
+
+				if cmpI == cmpJ {
+					isCommentI := strings.HasPrefix(allowSlice[i], "#")
+					isCommentJ := strings.HasPrefix(allowSlice[j], "#")
+					if isCommentI != isCommentJ {
+						return isCommentI
+					}
+					return allowSlice[i] < allowSlice[j]
+				}
+				return cmpI < cmpJ
+			})
+
+			for _, item := range allowSlice {
+				if strings.HasPrefix(item, "#") {
+					cleanComment := strings.TrimSpace(strings.TrimPrefix(item, "#"))
+					switch fmtType {
+					case "adblock":
+						outAllow.WriteString(fmt.Sprintf("! %s\n", cleanComment))
+					case "rpz":
+						outAllow.WriteString(fmt.Sprintf("; %s\n", cleanComment))
+					default:
+						outAllow.WriteString(fmt.Sprintf("# %s\n", cleanComment))
+					}
+					continue
+				}
+
 				switch fmtType {
 				case "adblock":
-					outAllow.WriteString(fmt.Sprintf("@@||%s^\n", dom))
+					outAllow.WriteString(fmt.Sprintf("@@||%s^\n", item))
 				case "rpz":
-					outAllow.WriteString(fmt.Sprintf("%s CNAME rpz-passthru.\n*.%s CNAME rpz-passthru.\n", dom, dom))
+					outAllow.WriteString(fmt.Sprintf("%s CNAME rpz-passthru.\n*.%s CNAME rpz-passthru.\n", item, item))
 				case "routedns", "squid":
-					outAllow.WriteString(fmt.Sprintf(".%s\n", dom))
+					outAllow.WriteString(fmt.Sprintf(".%s\n", item))
 				default:
-					outAllow.WriteString(fmt.Sprintf("%s\n", dom))
+					outAllow.WriteString(fmt.Sprintf("%s\n", item))
 				}
 			}
 		} else if fmtType == "adblock" && len(standaloneAllows) > 0 && outBlock != nil {
@@ -325,7 +373,11 @@ func buildOutputs(
 					outputItems = append(outputItems, removedLogDedup...)
 					outputItems = append(outputItems, removedLogParentBlocked...)
 				}
-				outputItems = append(outputItems, removedLogUnusedAllows...)
+				
+				// Only map unused allows to the blocklist if a separate allowlist file was NOT generated
+				if outAllow == nil {
+					outputItems = append(outputItems, removedLogUnusedAllows...)
+				}
 				
 				// Add conversions natively preserving original state comments
 				for _, conv := range conversionLog {
@@ -385,7 +437,7 @@ func buildOutputs(
 					case "rpz":
 						outBlock.WriteString(fmt.Sprintf("; %s\n", cleanComment))
 					default:
-						outBlock.WriteString(fmt.Sprintf("%s\n", item))
+						outBlock.WriteString(fmt.Sprintf("# %s\n", cleanComment))
 					}
 				} else {
 					switch fmtType {
