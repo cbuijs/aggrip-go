@@ -1,10 +1,11 @@
 /*
 ==========================================================================
 Filename: clean-dom/parser.go
-Version: 1.1.0-20260424
-Date: 2026-04-24 09:16 CEST
+Version: 1.1.1-20260424
+Date: 2026-04-24 09:59 CEST
 Description: Handles file I/O, format detection, Adblock translation, 
-             and parallel bulk ingestion of raw list payloads.
+             and parallel bulk ingestion of raw list payloads. Strict
+             path rejection protects DNS zone integrity.
 ==========================================================================
 */
 
@@ -147,6 +148,7 @@ func parseDomainToken(token string) parseResult {
 		DenyAllowUnicodeMap: make(map[string]string),
 	}
 
+	// Strictly map specific blocklist and allowlist configurations natively.
 	if strings.HasPrefix(token, "@@") {
 		res.IsAllow = true
 		token = token[2:]
@@ -196,6 +198,12 @@ func parseDomainToken(token string) parseResult {
 				return res
 			}
 		}
+	}
+
+	// Strict Adblock restriction: Only accept clean domains/hostnames.
+	// If the domain part contains a path (indicated by a slash), drop it completely.
+	if strings.Contains(domainPart, "/") {
+		return res
 	}
 
 	cleanDom := normalizeDomain(domainPart)
@@ -306,6 +314,7 @@ func readDomainsBulk(source string, isTopN bool, forceAllow bool, listType strin
 		}
 
 		if len(parsed.DenyAllow) > 0 {
+			logMsg(fmt.Sprintf("Ingestion: Extracted $denyallow domain(s) %v from rule '%s'", parsed.DenyAllow, rawToken))
 			if parsed.IsAllow || forceAllow {
 				result.Blocks = append(result.Blocks, parsed.DenyAllow...)
 				result.DenyAllows = append(result.DenyAllows, parsed.DenyAllow...)
@@ -377,6 +386,14 @@ func readDomainsBulk(source string, isTopN bool, forceAllow bool, listType strin
 			continue
 		}
 		firstToken := parts[0]
+
+		// Dynamic format switching: Elevate parsing bounds securely mid-ingestion if an indicator hits.
+		if detectedFmt == "mixed" {
+			if strings.HasPrefix(firstToken, "@@||") || strings.HasPrefix(firstToken, "||") {
+				detectedFmt = "adblock"
+				logMsg(fmt.Sprintf("Dynamic format switch: Detected strong Adblock indicators. Switching format to ADBLOCK for %s", source))
+			}
+		}
 
 		var isHosts, isAdblock, isRoutedns, isSquid, isDomain bool
 

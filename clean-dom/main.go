@@ -1,9 +1,12 @@
 /*
 ==========================================================================
 Filename: clean-dom/main.go
-Version: 1.1.0-20260424
-Date: 2026-04-24 09:16 CEST
+Version: 1.1.1-20260424
+Date: 2026-04-24 09:59 CEST
 Update Trail:
+  - 1.1.1 (2026-04-24): Added strict Adblock domain parsing (rejects paths),
+                        dynamic format switching from mixed to adblock, and
+                        explicit $denyallow extraction logging.
   - 1.1.0 (2026-04-24): Introduced --valid-tlds parameter with embedded 
                         IANA and OpenNIC dictionaries. Unifed validation 
                         logic for robust, noise-free output logs.
@@ -146,7 +149,7 @@ func main() {
 	flag.Parse()
 
 	if showVersion {
-		fmt.Println("clean-dom Go Edition - Version 1.1.0-20260424")
+		fmt.Println("clean-dom Go Edition - Version 1.1.1-20260424")
 		os.Exit(0)
 	}
 
