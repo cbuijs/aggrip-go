@@ -1,13 +1,16 @@
 /*
 ==========================================================================
 Filename: clean-dom/parser.go
-Version: 1.1.4-20260424
-Date: 2026-04-24 10:30 CEST
+Version: 1.1.5-20260424
+Date: 2026-04-24 20:09 CEST
 Description: Handles file I/O, format detection, Adblock translation, 
              and parallel bulk ingestion of raw list payloads. Strict
              path rejection protects DNS zone integrity.
 
 Update Trail:
+  - 1.1.5 (2026-04-24): Implemented trailing slash handler for Handshake (HNS) 
+                        domains (e.g. "domain/"). URLs and standard domains 
+                        with paths are strictly rejected natively.
   - 1.1.4 (2026-04-24): Added explicit block intent parsing. Adblock syntax 
                         (||) now strictly overrides file-level defaults, 
                         routing base domains and $denyallow targets 
@@ -153,6 +156,37 @@ func isASCII(s string) bool {
 	return true
 }
 
+// stripHnsSlash safely evaluates if a token with a trailing slash is a valid 
+// Handshake (HNS) domain. If verified, it strips the slash for internal processing.
+// If it is a standard URL or invalid path, it returns an empty string to signal rejection.
+func stripHnsSlash(token string) string {
+	if !strings.Contains(token, "/") {
+		return token
+	}
+	
+	// Ensure the slash is exclusively at the very end of the string.
+	// This inherently blocks URLs containing inline paths (e.g., domain.com/ads/)
+	if strings.Index(token, "/") == len(token)-1 {
+		cleanNoSlash := token[:len(token)-1]
+		
+		// Normalize to extract the true base domain without Adblock syntax (like ||)
+		norm := normalizeDomain(cleanNoSlash)
+		if norm == "" {
+			return ""
+		}
+		
+		parts := strings.Split(norm, ".")
+		tld := parts[len(parts)-1]
+		
+		// Strictly enforce that the resolved TLD exists in the Handshake dictionary.
+		// Protects against non-HNS strings mistakenly attempting to pass a trailing slash.
+		if IsHNSTLD(tld) {
+			return cleanNoSlash
+		}
+	}
+	return "" // Signal rejection
+}
+
 // parseDomainToken evaluates Adblock rules, extracts modifiers ($denyallow), ensures Punycode translation,
 // and strictly guarantees logical mapping and parent-subdomain relationship integrities natively.
 func parseDomainToken(token string) parseResult {
@@ -188,8 +222,12 @@ func parseDomainToken(token string) parseResult {
 
 	// 4. Strict Adblock restriction: Only accept clean domains/hostnames.
 	// If the domain part contains a path (indicated by a slash), drop it completely.
+	// EXCEPTION: Handshake (HNS) domains are allowed to end with a trailing slash.
 	if strings.Contains(domainPart, "/") {
-		return res
+		domainPart = stripHnsSlash(domainPart)
+		if domainPart == "" {
+			return res
+		}
 	}
 
 	// 5. Clean and translate base domain via IDNA natively.
@@ -237,6 +275,17 @@ func parseDomainToken(token string) parseResult {
 
 				targets := strings.Split(mod[10:], "|")
 				for _, da := range targets {
+					da = strings.TrimSpace(da) // Safe measure to prevent bound issues
+					
+					// Check for Handshake trailing slashes explicitly
+					if strings.Contains(da, "/") {
+						da = stripHnsSlash(da)
+						if da == "" {
+							logMsg(fmt.Sprintf("Warning: Ignored $denyallow entry as it appears to be an invalid path/URL in rule '%s'", origToken))
+							continue
+						}
+					}
+
 					cleanDa := normalizeDomain(da)
 					punyDa := cleanDa
 					var daOrig string
@@ -406,7 +455,17 @@ func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 			}
 			parts := strings.SplitN(line, ",", 2)
 			if len(parts) > 1 {
-				dom := normalizeDomain(parts[1])
+				rawDom := strings.TrimSpace(parts[1])
+				
+				// Handle Handshake trailing slash exceptions natively
+				if strings.Contains(rawDom, "/") {
+					rawDom = stripHnsSlash(rawDom)
+					if rawDom == "" {
+						continue
+					}
+				}
+
+				dom := normalizeDomain(rawDom)
 				punyDom := dom
 				var domOrig string
 

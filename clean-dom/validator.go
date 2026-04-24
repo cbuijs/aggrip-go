@@ -1,13 +1,16 @@
 /*
 ==========================================================================
 Filename: clean-dom/validator.go
-Version: 1.1.1-20260424
-Date: 2026-04-24 19:55 CEST
+Version: 1.1.2-20260424
+Date: 2026-04-24 20:09 CEST
 Description: Handles strict and lenient structural boundaries, RFC 
              enforcement, embedded TLD dictionary mapping, and 
              low-level string validation protocols.
 
 Update Trail:
+  - 1.1.2 (2026-04-24): Added HNS dictionary caching and IsHNSTLD exported 
+                        method to safely validate trailing slashes for 
+                        decentralized domains.
   - 1.1.1 (2026-04-24): Extracted Handshake (HNS) from the disabled 
                         fallback list. Added strict dictionary validation 
                         for known Handshake extensions via NiceNIC/NameCheap.
@@ -25,16 +28,33 @@ import (
 var (
 	activeTLDs      map[string]struct{}
 	tldCheckEnabled bool
+	hnsTLDsMap      map[string]struct{}
+	hnsAllowed      bool
 )
 
 // InitTLDValidator parses the configuration and loads the appropriate zero-dependency 
 // dictionaries into memory for O(1) high-speed validation lookups natively.
 func InitTLDValidator(config string) {
 	activeTLDs = make(map[string]struct{})
+	hnsTLDsMap = make(map[string]struct{})
+	
+	// Pre-load Handshake TLDs universally into isolated map. 
+	// Crucial for trailing-slash validations regardless of standard TLD checks.
+	for _, t := range strings.Split(hnsTLDs, ",") {
+		hnsTLDsMap[t] = struct{}{}
+	}
+
 	cfg := strings.ToLower(config)
 
+	// Keep track if HNS is conceptually authorized by the config (via explicit inclusion or disabled limits)
+	if strings.Contains(cfg, "hns") || strings.Contains(cfg, "all") || strings.Contains(cfg, "disable") {
+		hnsAllowed = true
+	} else {
+		hnsAllowed = false
+	}
+
 	// If disabled or all is specified, we strictly fallback to alphanumeric 
-	// RFC structural checks instead of performing dictionary matching.
+	// RFC structural checks instead of performing dictionary matching natively.
 	if strings.Contains(cfg, "disable") || strings.Contains(cfg, "all") {
 		tldCheckEnabled = false
 		logMsg("TLD Dictionary Validation: DISABLED (Fallback to Strict Structural Validation)")
@@ -59,8 +79,8 @@ func InitTLDValidator(config string) {
 	}
 
 	if strings.Contains(cfg, "hns") {
-		for _, t := range strings.Split(hnsTLDs, ",") {
-			activeTLDs[t] = struct{}{}
+		for k := range hnsTLDsMap {
+			activeTLDs[k] = struct{}{}
 		}
 		loaded = append(loaded, "Handshake (HNS)")
 	}
@@ -71,6 +91,16 @@ func InitTLDValidator(config string) {
 		logMsg("TLD Dictionary Validation: DISABLED (No valid lists provided)")
 		tldCheckEnabled = false
 	}
+}
+
+// IsHNSTLD safely checks if a given TLD natively exists within the Handshake registry.
+// Strictly guards validations to ensure the user config technically allowed HNS parsing.
+func IsHNSTLD(tld string) bool {
+	if !hnsAllowed {
+		return false
+	}
+	_, exists := hnsTLDsMap[strings.ToLower(tld)]
+	return exists
 }
 
 // isFastIP runs a rapid heuristic bypass checking if a token resembles an IP.

@@ -1,9 +1,11 @@
 /*
 ==========================================================================
 Filename: clean-dom/main.go
-Version: 1.1.4-20260424
-Date: 2026-04-24 10:33 CEST
+Version: 1.1.5-20260424
+Date: 2026-04-24 20:09 CEST
 Update Trail:
+  - 1.1.5 (2026-04-24): Synchronized version with parser/validator HNS 
+                        trailing slash support.
   - 1.1.4 (2026-04-24): Version sync with parser.go block intent updates.
   - 1.1.3 (2026-04-24): Dropped forceAllow parameter from processing pipeline. 
                         Relying on native file-type mapping.
@@ -153,7 +155,7 @@ func main() {
 	flag.Parse()
 
 	if showVersion {
-		fmt.Println("clean-dom Go Edition - Version 1.1.4-20260424")
+		fmt.Println("clean-dom Go Edition - Version 1.1.5-20260424")
 		os.Exit(0)
 	}
 
