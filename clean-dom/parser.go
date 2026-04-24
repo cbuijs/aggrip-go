@@ -1,8 +1,8 @@
 /*
 ==========================================================================
 Filename: clean-dom/parser.go
-Version: 1.0.9-20260424
-Date: 2026-04-24 09:01 CEST
+Version: 1.1.0-20260424
+Date: 2026-04-24 09:16 CEST
 Description: Handles file I/O, format detection, Adblock translation, 
              and parallel bulk ingestion of raw list payloads.
 ==========================================================================

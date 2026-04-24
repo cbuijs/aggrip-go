@@ -1,9 +1,12 @@
 /*
 ==========================================================================
 Filename: clean-dom/main.go
-Version: 1.0.9-20260424
-Date: 2026-04-24 09:01 CEST
+Version: 1.1.0-20260424
+Date: 2026-04-24 09:16 CEST
 Update Trail:
+  - 1.1.0 (2026-04-24): Introduced --valid-tlds parameter with embedded 
+                        IANA and OpenNIC dictionaries. Unifed validation 
+                        logic for robust, noise-free output logs.
   - 1.0.9 (2026-04-24): Refactored massive monolith into main.go, parser.go, 
                         formatter.go, and validator.go for enterprise maintainability.
   - 1.0.8 (2026-04-24): Implemented isPlausibleDomain pre-ingestion check.
@@ -52,6 +55,7 @@ var (
 	sortAlgo         string
 	outBlocklist     string
 	outAllowlist     string
+	validTlds        string
 	optimizeAllow    bool
 	suppressComments bool
 	lessStrict       bool
@@ -86,6 +90,8 @@ func init() {
 	
 	flag.StringVar(&outBlocklist, "out-blocklist", "", "File path to write the blocklist output (default: STDOUT)")
 	flag.StringVar(&outAllowlist, "out-allowlist", "", "File path to write the allowlist output")
+
+	flag.StringVar(&validTlds, "valid-tlds", "iana", "Comma-separated list of allowed TLD registries: iana (default), opennic, hns, all, disable")
 	
 	flag.BoolVar(&optimizeAllow, "optimize-allowlist", false, "Drop unused allowlist entries")
 	flag.BoolVar(&suppressComments, "suppress-comments", false, "Suppress audit log of removed domains")
@@ -115,6 +121,7 @@ func init() {
 		fmt.Fprintf(os.Stderr, "      --all-dir <dir>            Mandatory output directory to use when output format is set to 'all'\n")
 		fmt.Fprintf(os.Stderr, "  -w, --work-dir <dir>           Directory to save unmodified raw source files\n")
 		fmt.Fprintf(os.Stderr, "      --sort <type>              Sorting algorithm (domain, alphabetically, tld) (default \"domain\")\n")
+		fmt.Fprintf(os.Stderr, "      --valid-tlds <list>        Allowed TLD registries (iana, opennic, hns, all, disable) (default \"iana\")\n")
 		fmt.Fprintf(os.Stderr, "      --optimize-allowlist       Drop unused allowlist entries\n")
 		fmt.Fprintf(os.Stderr, "      --suppress-comments        Suppress audit log of removed domains\n")
 		fmt.Fprintf(os.Stderr, "  -l, --less-strict              Allow underscores (_) and asterisks (*) in domain names\n")
@@ -123,7 +130,7 @@ func init() {
 		fmt.Fprintf(os.Stderr, "  -V, --version                  Show version information and exit\n")
 		fmt.Fprintf(os.Stderr, "  -h, --help                     Show this help message\n")
 		fmt.Fprintf(os.Stderr, "\nExample:\n")
-		fmt.Fprintf(os.Stderr, "  clean-dom -b ads.txt -a ok.txt -o unbound --out-blocklist filter.conf -v\n")
+		fmt.Fprintf(os.Stderr, "  clean-dom -b ads.txt -o unbound --valid-tlds iana,opennic -v\n")
 	}
 }
 
@@ -139,7 +146,7 @@ func main() {
 	flag.Parse()
 
 	if showVersion {
-		fmt.Println("clean-dom Go Edition - Version 1.0.9-20260424")
+		fmt.Println("clean-dom Go Edition - Version 1.1.0-20260424")
 		os.Exit(0)
 	}
 
@@ -149,6 +156,9 @@ func main() {
 	if outputFmt == "all" && allDir == "" {
 		log.Fatal("Error: --all-dir is required when using -o all.")
 	}
+
+	// Initialize the TLD Validation Dictionaries securely upfront
+	InitTLDValidator(validTlds)
 
 	if workDir != "" {
 		os.MkdirAll(workDir, 0755)

@@ -16,7 +16,7 @@ High-performance, low-latency, and secure Go utilities for optimizing, deduplica
 
 * **Adblock Parsing:** Extracts modifiers (e.g., `$denyallow`) and translates Punycode (IDNA) automatically.
 
-* **Native Validation:** Fast byte-level payload validation. Strict RFC checking securely drops invalid anomalies (e.g., all-numeric TLDs). Less-strict override (`-l`) permits wildcards and underscores natively, and `--allow-tld` safely permits TLD-only entries.
+* **Native Validation & Dictionaries:** Fast byte-level payload validation. Strict RFC checking securely drops invalid anomalies (e.g., all-numeric TLDs). Features built-in, zero-dependency validation dictionaries for **IANA** (1400+ TLDs) and **OpenNIC** to strictly guarantee output sanitization. Support for decentralized/unregistered roots (Handshake) is configurable.
 
 * **Tree Deduplication:** Rapid O(N log N) deduplication via reverse string sorting (automatically drops redundant subdomains if a parent is already blocked). *Note: If a TLD like `com` is ingested via the `--allow-tld` flag, it acts as an apex parent and correctly collapses all subdomains (e.g. `example.com`) beneath it.*
 
@@ -25,7 +25,7 @@ High-performance, low-latency, and secure Go utilities for optimizing, deduplica
 **Usage Example:**
 
 ```bash
-clean-dom -b https://example.com/ads.txt -a local-allow.txt -o unbound --out-blocklist unbound-filter.conf -l --allow-tld -v
+clean-dom -b https://example.com/ads.txt -a local-allow.txt -o unbound --out-blocklist unbound-filter.conf --valid-tlds iana,opennic -v
 
 ### 2. clean-ip
 
@@ -100,7 +100,7 @@ Requires Go 1.25.0+ for `clean-dom`, Go 1.21+ for `clean-ip`, and Go 1.22+ for `
 ```bash
 # Build clean-dom
 cd clean-dom
-go build -ldflags="-s -w" -o clean-dom main.go
+go build -ldflags="-s -w" -o clean-dom main.go parser.go formatter.go validator.go
 
 # Build clean-ip
 cd ../clean-ip

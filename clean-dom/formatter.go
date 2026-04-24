@@ -1,8 +1,8 @@
 /*
 ==========================================================================
 Filename: clean-dom/formatter.go
-Version: 1.0.9-20260424
-Date: 2026-04-24 09:01 CEST
+Version: 1.1.0-20260424
+Date: 2026-04-24 09:16 CEST
 Description: Handles deduplication, formatting, layout mapping, output 
              generation, comment injection, and disk writing operations.
 ==========================================================================
@@ -54,30 +54,19 @@ func buildOutputs(
 	usedAllows := make(map[string]struct{})
 	loggedInvalids := make(map[string]struct{})
 
-	statsAllowlisted, statsTopN, statsDeduped, statsInvalidRFC, statsInvalidStruct := 0, 0, 0, 0, 0
+	statsAllowlisted, statsTopN, statsDeduped, statsInvalidStruct := 0, 0, 0, 0
 
 	for _, domain := range blockDomains {
-		// Validate structural boundaries and optionally TLD-only flags.
-		// Deduplicate validation logs globally using map logic to prevent spam from duplicate inputs.
-		if !isValidDomainStructural(domain, lessStrict, allowTLD) {
+		// Validates structural boundaries, strict RFC limits, and embedded TLD dictionaries.
+		// Detailed error strings automatically drive dynamic, noise-free output logs.
+		err := ValidateDomain(domain, lessStrict, allowTLD)
+		if err != nil {
 			if _, exists := loggedInvalids[domain]; !exists {
 				loggedInvalids[domain] = struct{}{}
 				if !suppressComments {
-					removedLogInvalids = append(removedLogInvalids, fmt.Sprintf("# %s - Removed due to strict structural/TLD validation", domain))
+					removedLogInvalids = append(removedLogInvalids, fmt.Sprintf("# %s - Removed: %v", domain, err))
 				}
 				statsInvalidStruct++
-			}
-			continue
-		}
-
-		// RFC strict fallback blocking (i.e. '201.22.83') 
-		if hasNumericTLD(domain) {
-			if _, exists := loggedInvalids[domain]; !exists {
-				loggedInvalids[domain] = struct{}{}
-				if !suppressComments {
-					removedLogInvalids = append(removedLogInvalids, fmt.Sprintf("# %s - Removed due to strict RFC validation (all-numeric TLD)", domain))
-				}
-				statsInvalidRFC++
 			}
 			continue
 		}
@@ -155,7 +144,7 @@ func buildOutputs(
 
 	for allowDom := range allowDomains {
 		// Ensure corrupted allow domains are skipped without polluting the firewall configurations natively.
-		if !isValidDomainStructural(allowDom, lessStrict, allowTLD) || hasNumericTLD(allowDom) {
+		if err := ValidateDomain(allowDom, lessStrict, allowTLD); err != nil {
 			continue
 		}
 
@@ -192,7 +181,7 @@ func buildOutputs(
 		finalAllows = usedAllows
 		for dom := range allowDomains {
 			// We also drop invalid allowlists directly preventing broken config generations
-			if !isValidDomainStructural(dom, lessStrict, allowTLD) || hasNumericTLD(dom) {
+			if err := ValidateDomain(dom, lessStrict, allowTLD); err != nil {
 				continue
 			}
 			if _, ok := usedAllows[dom]; !ok {
@@ -204,7 +193,7 @@ func buildOutputs(
 	} else {
 		finalAllows = make(map[string]struct{})
 		for dom := range allowDomains {
-			if isValidDomainStructural(dom, lessStrict, allowTLD) && !hasNumericTLD(dom) {
+			if err := ValidateDomain(dom, lessStrict, allowTLD); err == nil {
 				finalAllows[dom] = struct{}{}
 			}
 		}
@@ -432,8 +421,7 @@ func buildOutputs(
 		}
 		logMsg(fmt.Sprintf("========== OPTIMIZATION STATS %s ==========", passName))
 		logMsg(fmt.Sprintf("Total Blocklist Domains Read: %d", len(blockDomains)))
-		logMsg(fmt.Sprintf("Removed (Structural/TLD)    : %d", statsInvalidStruct))
-		logMsg(fmt.Sprintf("Removed (RFC Invalid)       : %d", statsInvalidRFC))
+		logMsg(fmt.Sprintf("Removed (Invalid/Unregistered): %d", statsInvalidStruct))
 		logMsg(fmt.Sprintf("Removed (Allowlisted)       : %d", statsAllowlisted))
 		logMsg(fmt.Sprintf("Removed (Not in Top-N)      : %d", statsTopN))
 		logMsg(fmt.Sprintf("Removed (Sub-domain Dedup)  : %d", statsDeduped))
@@ -456,7 +444,7 @@ func buildOutputs(
 func validAllowDomainsCounter(allowDomains map[string]struct{}, lessStrict bool, allowTLD bool) map[string]struct{} {
 	valid := make(map[string]struct{})
 	for dom := range allowDomains {
-		if isValidDomainStructural(dom, lessStrict, allowTLD) && !hasNumericTLD(dom) {
+		if err := ValidateDomain(dom, lessStrict, allowTLD); err == nil {
 			valid[dom] = struct{}{}
 		}
 	}
