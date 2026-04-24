@@ -60,7 +60,7 @@ jobs:
               # CGO_ENABLED=0 forces static linking to prevent library hijacking/dependencies
               # -ldflags="-s -w" strips debug tables for smaller, faster binaries
               cd ${tool}
-              CGO_ENABLED=0 GOOS=${GOOS} GOARCH=${GOARCH} go build -ldflags="-s -w" -o "../${OUTPUT_NAME}" main.go
+              CGO_ENABLED=0 GOOS=${GOOS} GOARCH=${GOARCH} go build -ldflags="-s -w" -o "../${OUTPUT_NAME}"
               cd ..
             done
           done
