@@ -1,14 +1,23 @@
 /*
 ==========================================================================
 Filename: clean-dom/main.go
-Version: 1.0.4-20260423
-Date: 2026-04-23 11:29 CEST
+Version: 1.0.7-20260424
+Date: 2026-04-24 14:35 CEST
 Update Trail:
+  - 1.0.7 (2026-04-24): Deferred structural validation to output phase 
+                        to ensure invalid/TLD drops are correctly logged 
+                        as comments in the generated output files natively.
+  - 1.0.6 (2026-04-24): Added --allow-tld parameter to optionally permit 
+                        TLD-only domains (e.g. 'com'). Updated validation 
+                        and usage instructions.
+  - 1.0.5 (2026-04-24): Stripped regexp for native byte-level parsing. Added
+                        strict RFC validation (hasNumericTLD). Fixed --sort 
+                        logic for 'alphabetically' vs 'tld'. Added -l/--less-strict.
   - 1.0.4 (2026-04-23): Standardized CLI parameters across the suite. Added
                         short parameters (-b, -a, -t, -V) and unified help output.
   - 1.0.3 (2026-04-23): Standardized CLI parameters. Added custom flag.Usage 
                         to clearly define long (--flag) and short (-f) args.
-  - 1.0.2 (2026-04-22): Fixed runtime panic in getParents slice bounds. Hardened comment trimming.
+  - 1.0.2 (2026-04-22): Fixed runtime panic in getParents slice bounds.
   - 1.0.1 (2026-04-22): Fixed missing 'unicode' package import.
   - 1.0.0 (2026-04-22): Initial Go port consolidating clean-dom.py and clean-dom2.py.
 Description: Enterprise-grade DNS blocklist optimizer. Features upfront 
@@ -32,7 +41,6 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -67,14 +75,10 @@ var (
 	outAllowlist     string
 	optimizeAllow    bool
 	suppressComments bool
+	lessStrict       bool
+	allowTLD         bool
 	verbose          bool
 	showVersion      bool
-)
-
-// Pre-compiled strict regex patterns for validating domains aggressively
-var (
-	domainPattern        = regexp.MustCompile(`^([a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?\.)+[a-z0-9\-]{2,}$`)
-	unicodeDomainPattern = regexp.MustCompile(`(?i)^([a-z0-9\x{00a1}-\x{ffff}]([a-z0-9\x{00a1}-\x{ffff}\-]{0,61}[a-z0-9\x{00a1}-\x{ffff}])?\.)+[a-z0-9\x{00a1}-\x{ffff}\-]{2,}$`)
 )
 
 func init() {
@@ -100,10 +104,17 @@ func init() {
 	flag.StringVar(&workDir, "w", "", "Short for --work-dir")
 
 	flag.StringVar(&sortAlgo, "sort", "domain", "Sorting algorithm: domain, alphabetically, tld")
+	
 	flag.StringVar(&outBlocklist, "out-blocklist", "", "File path to write the blocklist output (default: STDOUT)")
 	flag.StringVar(&outAllowlist, "out-allowlist", "", "File path to write the allowlist output")
+	
 	flag.BoolVar(&optimizeAllow, "optimize-allowlist", false, "Drop unused allowlist entries")
 	flag.BoolVar(&suppressComments, "suppress-comments", false, "Suppress audit log of removed domains")
+	
+	flag.BoolVar(&lessStrict, "less-strict", false, "Allow underscores (_) and asterisks (*) in domain names")
+	flag.BoolVar(&lessStrict, "l", false, "Short for --less-strict")
+	
+	flag.BoolVar(&allowTLD, "allow-tld", false, "Allow Top-Level Domains (TLDs) like 'com' or 'net'")
 	
 	flag.BoolVar(&verbose, "verbose", false, "Show progress and statistics on STDERR")
 	flag.BoolVar(&verbose, "v", false, "Short for --verbose")
@@ -127,6 +138,8 @@ func init() {
 		fmt.Fprintf(os.Stderr, "      --sort <type>              Sorting algorithm (domain, alphabetically, tld) (default \"domain\")\n")
 		fmt.Fprintf(os.Stderr, "      --optimize-allowlist       Drop unused allowlist entries\n")
 		fmt.Fprintf(os.Stderr, "      --suppress-comments        Suppress audit log of removed domains\n")
+		fmt.Fprintf(os.Stderr, "  -l, --less-strict              Allow underscores (_) and asterisks (*) in domain names\n")
+		fmt.Fprintf(os.Stderr, "      --allow-tld                Allow Top-Level Domains (TLDs) like 'com' (Note: 'com' collapses all .com subdomains)\n")
 		fmt.Fprintf(os.Stderr, "  -v, --verbose                  Show progress and statistics on STDERR\n")
 		fmt.Fprintf(os.Stderr, "  -V, --version                  Show version information and exit\n")
 		fmt.Fprintf(os.Stderr, "  -h, --help                     Show this help message\n")
@@ -153,6 +166,76 @@ func isFastIP(token string) bool {
 		return err == nil
 	}
 	return false
+}
+
+// isValidDomainStructural replaces slow regex engines with a high-speed native byte evaluator.
+// Supports overriding standard bounds using the lessStrict flag and allowTLD flag.
+func isValidDomainStructural(domain string, lessStrict bool, allowTLD bool) bool {
+	if len(domain) == 0 || len(domain) > 253 {
+		return false
+	}
+	
+	// Fast structural edge bounds
+	if domain[0] == '.' || domain[len(domain)-1] == '.' {
+		return false
+	}
+
+	parts := strings.Split(domain, ".")
+	if !allowTLD && len(parts) < 2 {
+		return false // Must contain at least a TLD identifier
+	}
+	if len(parts) == 0 {
+		return false
+	}
+
+	for _, part := range parts {
+		l := len(part)
+		if l == 0 || l > 63 {
+			return false
+		}
+		
+		// Blocks cannot start or end with standard hyphens per RFC
+		if part[0] == '-' || part[l-1] == '-' {
+			return false
+		}
+		
+		// Enforce underscore boundary blocks unless less-strict is actively toggled
+		if !lessStrict && (part[0] == '_' || part[l-1] == '_') {
+			return false
+		}
+
+		for j := 0; j < l; j++ {
+			c := part[j]
+			valid := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-'
+			
+			// Open regex parity boundaries for legacy non-compliant feeds
+			if !valid && lessStrict {
+				if c == '_' || c == '*' {
+					valid = true
+				}
+			}
+			if !valid {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// hasNumericTLD evaluates domains strictly against RFC 3696 enforcing alphabetic TLD boundaries.
+func hasNumericTLD(domain string) bool {
+	parts := strings.Split(domain, ".")
+	if len(parts) == 0 {
+		return false
+	}
+	tld := parts[len(parts)-1]
+	
+	for i := 0; i < len(tld); i++ {
+		if tld[i] < '0' || tld[i] > '9' {
+			return false // Safe, found an alphabetic or non-numeric character
+		}
+	}
+	return true // TLD is entirely numeric (e.g., 201.22.83)
 }
 
 // detectFormat samples lines to heuristically determine the file format dynamically.
@@ -302,13 +385,7 @@ func parseDomainToken(token string) parseResult {
 					}
 
 					if cleanDa != "" && punyDa != "" {
-						valid := false
-						if daOrig != "" {
-							valid = unicodeDomainPattern.MatchString(cleanDa) && domainPattern.MatchString(punyDa) && !isFastIP(punyDa)
-						} else {
-							valid = domainPattern.MatchString(punyDa) && !isFastIP(punyDa)
-						}
-
+						valid := !isFastIP(punyDa)
 						if valid {
 							res.DenyAllow = append(res.DenyAllow, punyDa)
 							if daOrig != "" {
@@ -338,12 +415,7 @@ func parseDomainToken(token string) parseResult {
 	}
 
 	if cleanDom != "" && punyDom != "" {
-		valid := false
-		if domOrig != "" {
-			valid = unicodeDomainPattern.MatchString(cleanDom) && domainPattern.MatchString(punyDom) && !isFastIP(punyDom)
-		} else {
-			valid = domainPattern.MatchString(punyDom) && !isFastIP(punyDom)
-		}
+		valid := !isFastIP(punyDom)
 		if !valid {
 			punyDom = ""
 		}
@@ -499,12 +571,7 @@ func readDomainsBulk(source string, isTopN bool, forceAllow bool, listType strin
 				}
 
 				if dom != "" && punyDom != "" {
-					valid := false
-					if domOrig != "" {
-						valid = unicodeDomainPattern.MatchString(dom) && domainPattern.MatchString(punyDom) && !isFastIP(punyDom)
-					} else {
-						valid = domainPattern.MatchString(punyDom) && !isFastIP(punyDom)
-					}
+					valid := !isFastIP(punyDom)
 					if valid {
 						result.Blocks = append(result.Blocks, punyDom)
 						if domOrig != "" {
@@ -598,12 +665,21 @@ func reverseStr(s string) string {
 	return string(r)
 }
 
+// extractDomainForSort strictly pulls the root domain from a string array index safely handling comments
+func extractDomainForSort(item string) string {
+	if strings.HasPrefix(item, "#") {
+		clean := strings.TrimSpace(strings.TrimPrefix(item, "#"))
+		return strings.SplitN(clean, " - ", 2)[0]
+	}
+	return item
+}
+
 func main() {
 	log.SetFlags(0)
 	flag.Parse()
 
 	if showVersion {
-		fmt.Println("clean-dom Go Edition - Version 1.0.4-20260423")
+		fmt.Println("clean-dom Go Edition - Version 1.0.7-20260424")
 		os.Exit(0)
 	}
 
@@ -689,12 +765,38 @@ func main() {
 		logMsg(fmt.Sprintf("--- Stage 5: Processing & Optimizing %s ---", passName))
 
 		filteredBlocks := make(map[string]struct{})
-		var removedLogGeneral, removedLogDedup, removedLogParentBlocked, removedLogUnusedAllows []string
+		var removedLogGeneral, removedLogDedup, removedLogParentBlocked, removedLogUnusedAllows, removedLogInvalids []string
 		usedAllows := make(map[string]struct{})
+		loggedInvalids := make(map[string]struct{})
 
-		statsAllowlisted, statsTopN, statsDeduped := 0, 0, 0
+		statsAllowlisted, statsTopN, statsDeduped, statsInvalidRFC, statsInvalidStruct := 0, 0, 0, 0, 0
 
 		for _, domain := range blockDomains {
+			// Validate structural boundaries and optionally TLD-only flags.
+			// Deduplicate validation logs globally using map logic to prevent spam from duplicate inputs.
+			if !isValidDomainStructural(domain, lessStrict, allowTLD) {
+				if _, exists := loggedInvalids[domain]; !exists {
+					loggedInvalids[domain] = struct{}{}
+					if !suppressComments {
+						removedLogInvalids = append(removedLogInvalids, fmt.Sprintf("# %s - Removed due to strict structural/TLD validation", domain))
+					}
+					statsInvalidStruct++
+				}
+				continue
+			}
+
+			// RFC strict fallback blocking (i.e. '201.22.83') 
+			if hasNumericTLD(domain) {
+				if _, exists := loggedInvalids[domain]; !exists {
+					loggedInvalids[domain] = struct{}{}
+					if !suppressComments {
+						removedLogInvalids = append(removedLogInvalids, fmt.Sprintf("# %s - Removed due to strict RFC validation (all-numeric TLD)", domain))
+					}
+					statsInvalidRFC++
+				}
+				continue
+			}
+
 			parents := getParents(domain)
 			allowed := false
 
@@ -767,6 +869,11 @@ func main() {
 		statsAllowIgnored := 0
 
 		for allowDom := range allowDomains {
+			// Ensure corrupted allow domains are skipped without polluting the firewall configurations natively.
+			if !isValidDomainStructural(allowDom, lessStrict, allowTLD) || hasNumericTLD(allowDom) {
+				continue
+			}
+
 			hasBlockedParent := false
 			for _, parent := range getParents(allowDom) {
 				if parent != allowDom {
@@ -799,6 +906,10 @@ func main() {
 		if optimizeAllow {
 			finalAllows = usedAllows
 			for dom := range allowDomains {
+				// We also drop invalid allowlists directly preventing broken config generations
+				if !isValidDomainStructural(dom, lessStrict, allowTLD) || hasNumericTLD(dom) {
+					continue
+				}
 				if _, ok := usedAllows[dom]; !ok {
 					if !suppressComments {
 						removedLogUnusedAllows = append(removedLogUnusedAllows, fmt.Sprintf("# %s - Removed from allowlist because it is unused", dom))
@@ -806,7 +917,12 @@ func main() {
 				}
 			}
 		} else {
-			finalAllows = allowDomains
+			finalAllows = make(map[string]struct{})
+			for dom := range allowDomains {
+				if isValidDomainStructural(dom, lessStrict, allowTLD) && !hasNumericTLD(dom) {
+					finalAllows[dom] = struct{}{}
+				}
+			}
 		}
 
 		hasAllowPayload := len(finalAllows) > 0
@@ -929,6 +1045,7 @@ func main() {
 				}
 
 				if !suppressComments {
+					outputItems = append(outputItems, removedLogInvalids...)
 					outputItems = append(outputItems, removedLogGeneral...)
 					if fmtType != "hosts" {
 						outputItems = append(outputItems, removedLogDedup...)
@@ -957,17 +1074,32 @@ func main() {
 				}
 
 				sort.Slice(outputItems, func(i, j int) bool {
-					cleanI := strings.Split(strings.TrimSpace(strings.TrimPrefix(outputItems[i], "#")), " - ")[0]
-					cleanJ := strings.Split(strings.TrimSpace(strings.TrimPrefix(outputItems[j], "#")), " - ")[0]
-					
-					// Sort order: domain segments reversed, comments last to stick with node
-					revI := reverseStr(cleanI)
-					revJ := reverseStr(cleanJ)
+					cleanI := extractDomainForSort(outputItems[i])
+					cleanJ := extractDomainForSort(outputItems[j])
 
-					if revI == revJ {
-						return strings.HasPrefix(outputItems[i], "#") && !strings.HasPrefix(outputItems[j], "#")
+					var cmpI, cmpJ string
+					if sortAlgo == "alphabetically" {
+						cmpI = cleanI
+						cmpJ = cleanJ
+					} else {
+						// Default standard routing algorithm natively
+						cmpI = reverseStr(cleanI)
+						cmpJ = reverseStr(cleanJ)
 					}
-					return revI < revJ
+
+					// Tie-breaker routing securely aligning comments to nodes
+					if cmpI == cmpJ {
+						isCommentI := strings.HasPrefix(outputItems[i], "#")
+						isCommentJ := strings.HasPrefix(outputItems[j], "#")
+						
+						// Route comments safely above their functional domain node natively
+						if isCommentI != isCommentJ {
+							return isCommentI
+						}
+						// Safe fallback resolving comment-to-comment or node-to-node ties
+						return outputItems[i] < outputItems[j]
+					}
+					return cmpI < cmpJ
 				})
 
 				for _, item := range outputItems {
@@ -1011,10 +1143,12 @@ func main() {
 		if verbose {
 			statsUnusedAllows := 0
 			if optimizeAllow {
-				statsUnusedAllows = len(allowDomains) - len(usedAllows)
+				statsUnusedAllows = len(validAllowDomainsCounter(allowDomains, lessStrict, allowTLD)) - len(usedAllows)
 			}
 			logMsg(fmt.Sprintf("========== OPTIMIZATION STATS %s ==========", passName))
 			logMsg(fmt.Sprintf("Total Blocklist Domains Read: %d", len(blockDomains)))
+			logMsg(fmt.Sprintf("Removed (Structural/TLD)    : %d", statsInvalidStruct))
+			logMsg(fmt.Sprintf("Removed (RFC Invalid)       : %d", statsInvalidRFC))
 			logMsg(fmt.Sprintf("Removed (Allowlisted)       : %d", statsAllowlisted))
 			logMsg(fmt.Sprintf("Removed (Not in Top-N)      : %d", statsTopN))
 			logMsg(fmt.Sprintf("Removed (Sub-domain Dedup)  : %d", statsDeduped))
@@ -1043,5 +1177,16 @@ func main() {
 			buildOutputs(nil, "", false)
 		}
 	}
+}
+
+// validAllowDomainsCounter helper function for the verbose output logger cleanly validating lengths
+func validAllowDomainsCounter(allowDomains map[string]struct{}, lessStrict bool, allowTLD bool) map[string]struct{} {
+	valid := make(map[string]struct{})
+	for dom := range allowDomains {
+		if isValidDomainStructural(dom, lessStrict, allowTLD) && !hasNumericTLD(dom) {
+			valid[dom] = struct{}{}
+		}
+	}
+	return valid
 }
 

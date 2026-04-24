@@ -16,15 +16,16 @@ High-performance, low-latency, and secure Go utilities for optimizing, deduplica
 
 * **Adblock Parsing:** Extracts modifiers (e.g., `$denyallow`) and translates Punycode (IDNA) automatically.
 
-* **Tree Deduplication:** Rapid O(N log N) deduplication via reverse string sorting (automatically drops redundant subdomains if a parent is already blocked).
+* **Native Validation:** Fast byte-level payload validation. Strict RFC checking securely drops invalid anomalies (e.g., all-numeric TLDs). Less-strict override (`-l`) permits wildcards and underscores natively, and `--allow-tld` safely permits TLD-only entries.
+
+* **Tree Deduplication:** Rapid O(N log N) deduplication via reverse string sorting (automatically drops redundant subdomains if a parent is already blocked). *Note: If a TLD like `com` is ingested via the `--allow-tld` flag, it acts as an apex parent and correctly collapses all subdomains (e.g. `example.com`) beneath it.*
 
 * **Multiple Outputs:** Generates ready-to-use configs for `domain`, `hosts`, `adblock`, `dnsmasq`, `unbound`, `rpz`, `routedns`, and `squid`.
 
 **Usage Example:**
 
 ```bash
-clean-dom -b https://example.com/ads.txt -a local-allow.txt -o unbound --out-blocklist unbound-filter.conf -v
-```
+clean-dom -b https://example.com/ads.txt -a local-allow.txt -o unbound --out-blocklist unbound-filter.conf -l --allow-tld -v
 
 ### 2. clean-ip
 
@@ -46,7 +47,6 @@ clean-dom -b https://example.com/ads.txt -a local-allow.txt -o unbound --out-blo
 
 ```bash
 clean-ip -b drop.txt -a allow.txt -o iptables --out-blocklist rules.v4 -v
-```
 
 ### 3. aggrip
 
@@ -72,7 +72,6 @@ cat raw_ips.txt | aggrip > optimized_cidrs.txt
 
 # Direct file I/O with strict boundary enforcement
 aggrip -i raw_ips.txt -o optimized_cidrs.txt -s -v
-```
 
 ### 4. undup
 
@@ -93,7 +92,6 @@ cat domains.txt | undup > unique_domains.txt
 
 # File I/O with less-strict parsing
 undup -i mixed_domains.txt -o clean_domains.txt -l -v
-```
 
 ## Building from Source
 
@@ -115,5 +113,4 @@ go build -ldflags="-s -w" -o aggrip main.go
 # Build undup
 cd ../undup
 go build -ldflags="-s -w" -o undup main.go
-```
 
