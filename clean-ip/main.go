@@ -1,14 +1,19 @@
 /*
 ==========================================================================
 Filename: clean-ip/main.go
-Version: 1.1.3-20260423
-Date: 2026-04-23 11:35 CEST
+Version: 1.1.5-20260425
+Date: 2026-04-25 13:30 CEST
 Description: Enterprise-grade IP blocklist optimizer. High-speed Go port
              of clean-ip.py. Aggregates IPs, CIDRs, ranges. Cross-references
              against allowlists, collapses redundant subnets, performs
              mathematical hole-punching, and exports to firewall formats.
 
 Changes:
+- v1.1.5 (2026-04-25): Removed custom CLI argument interceptor. Standardized 
+                       blocklist/allowlist ingestion using native flag.Value 
+                       stringSlice mapping (-b file1 -b file2) mirroring clean-dom.
+- v1.1.4 (2026-04-25): Hardened custom CLI parser to natively trap and respect 
+                       -h and --help standard flags before stripping unknown args.
 - v1.1.3 (2026-04-23): Updated header filename to include subdirectory.
 - v1.1.2 (2026-04-23): Standardized CLI parameters across suite (-b, -a, 
                        -V, -v, -h) modifying custom parsing handlers natively.
@@ -44,10 +49,20 @@ import (
 	"time"
 )
 
+// stringSlice implements flag.Value to allow multiple CLI arguments natively.
+// Replacing the custom pre-parser to match clean-dom standard behavior.
+type stringSlice []string
+
+func (s *stringSlice) String() string {
+	return strings.Join(*s, " ")
+}
+func (s *stringSlice) Set(value string) error {
+	*s = append(*s, value)
+	return nil
+}
+
 // Options holds CLI configuration mapping directly to standard execution parameters
 type Options struct {
-	Blocklists        []string
-	Allowlists        []string
 	Output            string
 	RangeSep          string
 	OutBlocklist      string
@@ -565,6 +580,16 @@ func formatAllowNetwork(p netip.Prefix, fmtType string, rangeSep string) string 
 
 func main() {
 	var opts Options
+	var blocklists stringSlice
+	var allowlists stringSlice
+
+	// Register variables for double-dash configurations. Standardized short formats included.
+	flag.Var(&blocklists, "blocklist", "Path(s) or URL(s) to the IP blocklist(s) (can specify multiple times)")
+	flag.Var(&blocklists, "b", "Short for --blocklist")
+
+	flag.Var(&allowlists, "allowlist", "Optional path(s) or URL(s) to the IP allowlist(s) (can specify multiple times)")
+	flag.Var(&allowlists, "a", "Short for --allowlist")
+
 	flag.StringVar(&opts.Output, "output", "cidr", "Output format (cidr, netmask, range, cisco, iptables, mikrotik, padded)")
 	flag.StringVar(&opts.Output, "o", "cidr", "Short for --output")
 	
@@ -583,12 +608,12 @@ func main() {
 	flag.BoolVar(&opts.ShowVersion, "version", false, "Show version information and exit")
 	flag.BoolVar(&opts.ShowVersion, "V", false, "Short for --version")
 
-	// Custom formatted usage explicitly declaring list flags bypassing flag constraints
+	// Custom formatted usage explicitly declaring standard flags across the suite
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage of clean-ip:\n\n")
 		fmt.Fprintf(os.Stderr, "Core Options:\n")
-		fmt.Fprintf(os.Stderr, "  -b, --blocklist <path/url>...  Path(s) or URL(s) to the IP blocklist(s) (Required, accepts multiple separated by space)\n")
-		fmt.Fprintf(os.Stderr, "  -a, --allowlist <path/url>...  Path(s) or URL(s) to the IP allowlist(s) (Optional, accepts multiple separated by space)\n")
+		fmt.Fprintf(os.Stderr, "  -b, --blocklist <path/url>     Path(s) or URL(s) to the IP blocklist(s) (Required, can specify multiple)\n")
+		fmt.Fprintf(os.Stderr, "  -a, --allowlist <path/url>     Path(s) or URL(s) to the IP allowlist(s) (Optional, can specify multiple)\n")
 		fmt.Fprintf(os.Stderr, "  -o, --output <format>          Output format (cidr, netmask, range, cisco, iptables, mikrotik, padded) (default \"cidr\")\n")
 		fmt.Fprintf(os.Stderr, "      --range-sep <sep>          Separator for range output (space, dash) (default \"dash\")\n")
 		fmt.Fprintf(os.Stderr, "      --out-blocklist <file>     File path to write the blocklist output\n")
@@ -600,48 +625,21 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  -V, --version                  Show version information and exit\n")
 		fmt.Fprintf(os.Stderr, "  -h, --help                     Show this help message\n")
 		fmt.Fprintf(os.Stderr, "\nExample:\n")
-		fmt.Fprintf(os.Stderr, "  clean-ip -b drop.txt -a allow.txt -o iptables --out-blocklist rules.v4 -v\n")
+		fmt.Fprintf(os.Stderr, "  clean-ip -b drop1.txt -b drop2.txt -a allow.txt -o iptables --out-blocklist rules.v4 -v\n")
 	}
 
-	// ----------------------------------------------------------------------
-	// Custom Pre-Parsing for nargs='+' Support
-	// Go's standard flag.Parse() drops lists of space-separated strings.
-	// We extract --blocklist and --allowlist manually to prevent crash errors.
-	// ----------------------------------------------------------------------
-	var standardArgs []string
-	args := os.Args[1:]
-
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		if arg == "--blocklist" || arg == "-blocklist" || arg == "-b" {
-			i++
-			for ; i < len(args) && !strings.HasPrefix(args[i], "-"); i++ {
-				opts.Blocklists = append(opts.Blocklists, args[i])
-			}
-			i--
-		} else if arg == "--allowlist" || arg == "-allowlist" || arg == "-a" {
-			i++
-			for ; i < len(args) && !strings.HasPrefix(args[i], "-"); i++ {
-				opts.Allowlists = append(opts.Allowlists, args[i])
-			}
-			i--
-		} else {
-			standardArgs = append(standardArgs, arg)
-		}
-	}
-
-	// Override arguments feeding flag.Parse to drop lists entirely and let standard handle the rest
-	os.Args = append([]string{os.Args[0]}, standardArgs...)
+	// Native flag parsing perfectly maps the stringSlice arguments natively.
 	flag.Parse()
 
 	// Handle version output intercept natively
 	if opts.ShowVersion {
-		fmt.Println("clean-ip Go Edition - Version 1.1.3-20260423")
+		fmt.Println("clean-ip Go Edition - Version 1.1.5-20260425")
 		os.Exit(0)
 	}
 
-	if len(opts.Blocklists) == 0 {
+	if len(blocklists) == 0 {
 		fmt.Fprintf(os.Stderr, "Error: --blocklist / -b is required.\n")
+		flag.Usage()
 		os.Exit(1)
 	}
 
@@ -651,7 +649,7 @@ func main() {
 	var rawBlocks, rawAllows []netip.Prefix
 	var muBlock, muAllow sync.Mutex
 
-	for _, source := range opts.Blocklists {
+	for _, source := range blocklists {
 		wg.Add(1)
 		go func(s string) {
 			defer wg.Done()
@@ -666,7 +664,7 @@ func main() {
 		}(source)
 	}
 
-	for _, source := range opts.Allowlists {
+	for _, source := range allowlists {
 		wg.Add(1)
 		go func(s string) {
 			defer wg.Done()

@@ -1,13 +1,17 @@
 /*
 ==========================================================================
 Filename: clean-dom/parser.go
-Version: 1.1.5-20260424
-Date: 2026-04-24 20:09 CEST
+Version: 1.1.6-20260425
+Date: 2026-04-25 13:26 CEST
 Description: Handles file I/O, format detection, Adblock translation, 
              and parallel bulk ingestion of raw list payloads. Strict
              path rejection protects DNS zone integrity.
 
 Update Trail:
+  - 1.1.6 (2026-04-25): Refactored fetchLines to stream payloads directly
+                        via bufio.Scanner instead of allocating massive 
+                        []byte blocks with io.ReadAll. Vastly improves 
+                        memory utilization on enterprise-grade blocklists.
   - 1.1.5 (2026-04-24): Implemented trailing slash handler for Handshake (HNS) 
                         domains (e.g. "domain/"). URLs and standard domains 
                         with paths are strictly rejected natively.
@@ -28,7 +32,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"crypto/sha256"
 	"fmt"
 	"io"
@@ -327,9 +330,10 @@ func parseDomainToken(token string) parseResult {
 }
 
 // fetchLines retrieves string payloads natively via bulk read from HTTP or local paths.
+// Optimized: Directly streams string parsing into a slice avoiding heavy []byte allocations.
 func fetchLines(source string) ([]string, error) {
-	var data []byte
-	var err error
+	var reader io.Reader
+	var closeFunc func() error
 
 	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
 		req, errReq := http.NewRequest("GET", source, nil)
@@ -342,23 +346,32 @@ func fetchLines(source string) ([]string, error) {
 		if errDo != nil {
 			return nil, errDo
 		}
-		defer resp.Body.Close()
-		data, err = io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, err
-		}
+		reader = resp.Body
+		closeFunc = resp.Body.Close
 	} else {
-		data, err = os.ReadFile(source)
+		f, err := os.Open(source)
 		if err != nil {
 			return nil, err
 		}
+		reader = f
+		closeFunc = f.Close
 	}
 
-	scanner := bufio.NewScanner(bytes.NewReader(data))
-	var lines []string
+	// Defer closure of the initialized HTTP stream or disk file dynamically
+	defer closeFunc()
+
+	scanner := bufio.NewScanner(reader)
+	// Accommodate deeply polluted lines mapping a heavy 1MB internal buffer to the stream directly
+	buf := make([]byte, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+
+	// Pre-allocate the dynamic string slice to dramatically cut resizing overhead
+	lines := make([]string, 0, 100000)
+	
 	for scanner.Scan() {
 		lines = append(lines, scanner.Text())
 	}
+	
 	return lines, scanner.Err()
 }
 
