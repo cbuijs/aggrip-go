@@ -1,12 +1,17 @@
 /*
 ==========================================================================
 Filename: clean-dom/formatter.go
-Version: 1.1.9-20260424
-Date: 2026-04-24 11:25 CEST
+Version: 1.1.10-20260425
+Date: 2026-04-25 12:42 CEST
 Description: Handles deduplication, formatting, layout mapping, output 
              generation, comment injection, and disk writing operations.
 
 Update Trail:
+  - 1.1.10 (2026-04-25): Refactored comment generation formats to strictly
+                         align output comments with their target apex domains
+                         regardless of the sort algorithm applied. Stripped
+                         a bug causing standalone allowlist entries to be 
+                         duplicated natively in unified Adblock payloads.
   - 1.1.9 (2026-04-24): Resolved function redeclaration conflict. Renamed 
                         extractDomainForSort to extractSortKey natively to 
                         prevent collision with validator.go.
@@ -79,7 +84,8 @@ func buildOutputs(
 			if _, exists := loggedInvalids[domain]; !exists {
 				loggedInvalids[domain] = struct{}{}
 				if !suppressComments {
-					removedLogInvalids = append(removedLogInvalids, fmt.Sprintf("# %s - Removed: %v", domain, err))
+					// Format aligned to map the specific domain safely above its apex equivalent
+					removedLogInvalids = append(removedLogInvalids, fmt.Sprintf("# %s - Removed (Invalid): %v", domain, err))
 				}
 				statsInvalidStruct++
 			}
@@ -96,7 +102,8 @@ func buildOutputs(
 						usedAllows[p] = struct{}{}
 						allowed = true
 						if !suppressComments {
-							removedLogGeneral = append(removedLogGeneral, fmt.Sprintf("# %s - Removed because allowlisted by parent/apex %s", domain, p))
+							// Formats the comment to explicitly extract and map against the parent/apex node natively
+							removedLogGeneral = append(removedLogGeneral, fmt.Sprintf("# %s - Allowlisted subdomain removed: %s", p, domain))
 						}
 						statsAllowlisted++
 						break
@@ -118,7 +125,7 @@ func buildOutputs(
 			}
 			if !inTopN {
 				if !suppressComments {
-					removedLogGeneral = append(removedLogGeneral, fmt.Sprintf("# %s - Removed because not present in Top-N list", domain))
+					removedLogGeneral = append(removedLogGeneral, fmt.Sprintf("# %s - Removed (Not in Top-N list)", domain))
 				}
 				statsTopN++
 				continue
@@ -142,7 +149,8 @@ func buildOutputs(
 	for _, curr := range revList {
 		if lastKept != "" && strings.HasPrefix(curr, lastKept) && len(curr) > len(lastKept) && curr[len(lastKept)] == '.' {
 			if !suppressComments {
-				removedLogDedup = append(removedLogDedup, fmt.Sprintf("# %s - Removed because redundant to blocked parent domain %s", reverseStr(curr), reverseStr(lastKept)))
+				// Formats the comment placing the apex natively first for proper alphabetical sequence alignment
+				removedLogDedup = append(removedLogDedup, fmt.Sprintf("# %s - Redundant subdomain removed: %s", reverseStr(lastKept), reverseStr(curr)))
 			}
 			statsDeduped++
 			continue
@@ -174,7 +182,7 @@ func buildOutputs(
 					// Subdomains unblocked within a blocked parent scope act logarithmically differently than standard files
 					if outputFmt != "hosts" {
 						if !suppressComments {
-							removedLogParentBlocked = append(removedLogParentBlocked, fmt.Sprintf("# %s - Allowlisted sub-domain explicitly mapped against blocked parent %s", allowDom, parent))
+							removedLogParentBlocked = append(removedLogParentBlocked, fmt.Sprintf("# %s - Explicitly allowed subdomain mapped: %s", parent, allowDom))
 						}
 						statsAllowIgnored++
 					}
@@ -202,7 +210,7 @@ func buildOutputs(
 			}
 			if _, ok := usedAllows[dom]; !ok {
 				if !suppressComments {
-					removedLogUnusedAllows = append(removedLogUnusedAllows, fmt.Sprintf("# %s - Removed from allowlist because it is unused (does not unblock any blacklisted domains)", dom))
+					removedLogUnusedAllows = append(removedLogUnusedAllows, fmt.Sprintf("# %s - Removed from allowlist (Unused)", dom))
 				}
 			}
 		}
@@ -387,14 +395,6 @@ func buildOutputs(
 			} else {
 				for k := range finalActive {
 					outputItems = append(outputItems, k)
-				}
-			}
-
-			// Safely merge standalone allowlist rules directly into output array 
-			// natively for Adblock format when unified output is requested.
-			if fmtType == "adblock" && outAllow == nil {
-				for _, dom := range standaloneAllows {
-					outputItems = append(outputItems, "@@||"+dom)
 				}
 			}
 
