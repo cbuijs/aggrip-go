@@ -1,12 +1,15 @@
 /*
 ==========================================================================
 Filename: clean-dom/formatter.go
-Version: 1.1.10-20260425
-Date: 2026-04-25 12:42 CEST
+Version: 1.1.11-20260425
+Date: 2026-04-25 13:48 CEST
 Description: Handles deduplication, formatting, layout mapping, output 
              generation, comment injection, and disk writing operations.
 
 Update Trail:
+  - 1.1.11 (2026-04-25): Implemented high-speed HOSTS compression routing 
+                         via capacity-bound slice buffers. Natively groups
+                         domains per IP address eliminating output bloat.
   - 1.1.10 (2026-04-25): Refactored comment generation formats to strictly
                          align output comments with their target apex domains
                          regardless of the sort algorithm applied. Stripped
@@ -461,9 +464,34 @@ func buildOutputs(
 				return cmpI < cmpJ
 			})
 
+			// ----------------------------------------------------------------------
+			// High-Speed HOSTS Compression Buffer
+			// Capacity is strictly pre-allocated directly mapping to the target limit
+			// completely preventing runtime array reallocation overhead.
+			// ----------------------------------------------------------------------
+			var hostsBuffer []string
+			if compressHosts.Active {
+				hostsBuffer = make([]string, 0, compressHosts.Value)
+			}
+
+			// Inline closure isolating the compression flush cleanly safely mapping to disk
+			flushHosts := func() {
+				if len(hostsBuffer) > 0 {
+					outBlock.WriteString(fmt.Sprintf("0.0.0.0 %s\n", strings.Join(hostsBuffer, " ")))
+					hostsBuffer = hostsBuffer[:0]
+				}
+			}
+
 			for _, item := range outputItems {
 				if strings.HasPrefix(item, "#") {
 					cleanComment := strings.TrimSpace(strings.TrimPrefix(item, "#"))
+
+					// Force an immediate buffer flush securely mapping hosts directly before
+					// formatting structural logs to strictly protect context alignments.
+					if fmtType == "hosts" && compressHosts.Active {
+						flushHosts()
+					}
+
 					switch fmtType {
 					case "adblock":
 						outBlock.WriteString(fmt.Sprintf("! %s\n", cleanComment))
@@ -475,7 +503,14 @@ func buildOutputs(
 				} else {
 					switch fmtType {
 					case "hosts":
-						outBlock.WriteString(fmt.Sprintf("0.0.0.0 %s\n", item))
+						if compressHosts.Active {
+							hostsBuffer = append(hostsBuffer, item)
+							if len(hostsBuffer) >= compressHosts.Value {
+								flushHosts()
+							}
+						} else {
+							outBlock.WriteString(fmt.Sprintf("0.0.0.0 %s\n", item))
+						}
 					case "dnsmasq":
 						outBlock.WriteString(fmt.Sprintf("server=/%s/\n", item))
 					case "unbound":
@@ -495,6 +530,11 @@ func buildOutputs(
 						outBlock.WriteString(fmt.Sprintf("%s\n", item))
 					}
 				}
+			}
+
+			// Trap any residual hosts natively leftover following execution completion
+			if fmtType == "hosts" && compressHosts.Active {
+				flushHosts()
 			}
 		}
 	}

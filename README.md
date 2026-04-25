@@ -22,10 +22,17 @@ High-performance, low-latency, and secure Go utilities for optimizing, deduplica
 
 * **Multiple Outputs:** Generates ready-to-use configs for `domain`, `hosts`, `adblock`, `dnsmasq`, `unbound`, `rpz`, `routedns`, and `squid`.
 
+* **Hosts Output Compression:** Includes optional `--compress-hosts[=<num>]` capacity routing to collapse multiple domains securely onto a single IP mapping (e.g., `0.0.0.0 dom1 dom2...`). Defaults to 10 nodes per line when the flag is triggered.
+
 **Usage Example:**
 
 ```bash
+# Standard Output Formatting
 clean-dom -b https://example.com/ads.txt -a local-allow.txt -o unbound --out-blocklist unbound-filter.conf --valid-tlds iana,opennic -v
+
+# Compressed HOSTS File Routing (Output mapping up to 15 domains per single IP line)
+clean-dom -b https://example.com/ads.txt -o hosts --compress-hosts=15 --out-blocklist filter.hosts -v
+```
 
 ### 2. clean-ip
 
@@ -47,6 +54,7 @@ clean-dom -b https://example.com/ads.txt -a local-allow.txt -o unbound --out-blo
 
 ```bash
 clean-ip -b drop.txt -a allow.txt -o iptables --out-blocklist rules.v4 -v
+```
 
 ### 3. aggrip
 
@@ -72,6 +80,7 @@ cat raw_ips.txt | aggrip > optimized_cidrs.txt
 
 # Direct file I/O with strict boundary enforcement
 aggrip -i raw_ips.txt -o optimized_cidrs.txt -s -v
+```
 
 ### 4. undup
 
@@ -92,6 +101,7 @@ cat domains.txt | undup > unique_domains.txt
 
 # File I/O with less-strict parsing
 undup -i mixed_domains.txt -o clean_domains.txt -l -v
+```
 
 ## Building from Source
 
@@ -113,4 +123,6 @@ go build -ldflags="-s -w" -o aggrip main.go
 # Build undup
 cd ../undup
 go build -ldflags="-s -w" -o undup main.go
+```
+
 

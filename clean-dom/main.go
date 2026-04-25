@@ -1,9 +1,12 @@
 /*
 ==========================================================================
 Filename: clean-dom/main.go
-Version: 1.1.6-20260425
-Date: 2026-04-25 13:26 CEST
+Version: 1.1.7-20260425
+Date: 2026-04-25 13:48 CEST
 Update Trail:
+  - 1.1.7 (2026-04-25): Implemented optionalIntFlag to support optional 
+                        numeric values for boolean flags. Added the 
+                        --compress-hosts parameter for HOSTS formatting.
   - 1.1.6 (2026-04-25): Synchronized version with parser stream optimization.
   - 1.1.5 (2026-04-24): Synchronized version with parser/validator HNS 
                         trailing slash support.
@@ -38,6 +41,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -51,6 +55,51 @@ func (s *stringSlice) String() string {
 func (s *stringSlice) Set(value string) error {
 	*s = append(*s, value)
 	return nil
+}
+
+// optionalIntFlag implements a custom flag construct allowing a parameter
+// to act as both a boolean toggle and an integer receiver cleanly.
+// This natively supports syntax like --flag and --flag=5.
+type optionalIntFlag struct {
+	Value  int
+	Active bool
+}
+
+// String fulfills the flag.Value interface returning the string representation.
+func (i *optionalIntFlag) String() string {
+	if !i.Active {
+		return "0"
+	}
+	return strconv.Itoa(i.Value)
+}
+
+// Set fulfills the flag.Value interface, parsing the assigned string payload safely.
+func (i *optionalIntFlag) Set(s string) error {
+	i.Active = true
+	// "true" is natively passed by the flag package if the argument lacks an equal sign
+	if s == "true" {
+		i.Value = 10 // Enterprise default routing specification
+		return nil
+	}
+	if s == "false" {
+		i.Active = false
+		return nil
+	}
+	val, err := strconv.Atoi(s)
+	if err != nil {
+		return fmt.Errorf("invalid integer format: %v", err)
+	}
+	if val < 1 {
+		return fmt.Errorf("value must be >= 1")
+	}
+	i.Value = val
+	return nil
+}
+
+// IsBoolFlag signals the internal Go flag package that this construct
+// natively allows omitted values without triggering parse failures.
+func (i *optionalIntFlag) IsBoolFlag() bool {
+	return true
 }
 
 // Global Flags defining core operations and behaviors across all files in main package
@@ -70,6 +119,7 @@ var (
 	suppressComments bool
 	lessStrict       bool
 	allowTLD         bool
+	compressHosts    optionalIntFlag
 	verbose          bool
 	showVersion      bool
 )
@@ -111,6 +161,8 @@ func init() {
 	
 	flag.BoolVar(&allowTLD, "allow-tld", false, "Allow Top-Level Domains (TLDs) like 'com' or 'net'")
 	
+	flag.Var(&compressHosts, "compress-hosts", "Compress HOSTS format output (default 10 domains per IP when flag is present)")
+	
 	flag.BoolVar(&verbose, "verbose", false, "Show progress and statistics on STDERR")
 	flag.BoolVar(&verbose, "v", false, "Short for --verbose")
 
@@ -136,6 +188,7 @@ func init() {
 		fmt.Fprintf(os.Stderr, "      --suppress-comments        Suppress audit log of removed domains\n")
 		fmt.Fprintf(os.Stderr, "  -l, --less-strict              Allow underscores (_) and asterisks (*) in domain names\n")
 		fmt.Fprintf(os.Stderr, "      --allow-tld                Allow Top-Level Domains (TLDs) like 'com' (Note: 'com' collapses all .com subdomains)\n")
+		fmt.Fprintf(os.Stderr, "      --compress-hosts[=<num>]   Compress HOSTS format output (default 10 domains per IP when flag is present)\n")
 		fmt.Fprintf(os.Stderr, "  -v, --verbose                  Show progress and statistics on STDERR\n")
 		fmt.Fprintf(os.Stderr, "  -V, --version                  Show version information and exit\n")
 		fmt.Fprintf(os.Stderr, "  -h, --help                     Show this help message\n")
@@ -156,7 +209,7 @@ func main() {
 	flag.Parse()
 
 	if showVersion {
-		fmt.Println("clean-dom Go Edition - Version 1.1.6-20260425")
+		fmt.Println("clean-dom Go Edition - Version 1.1.7-20260425")
 		os.Exit(0)
 	}
 
