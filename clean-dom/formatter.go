@@ -1,12 +1,15 @@
 /*
 ==========================================================================
 Filename: clean-dom/formatter.go
-Version: 1.10.0-20260429
-Date: 2026-04-29 15:18 CEST
+Version: 1.12.0-20260429
+Date: 2026-04-29 15:32 CEST
 Description: Handles deduplication, formatting, layout mapping, output 
              generation, comment injection, and disk writing operations.
 
 Update Trail:
+  - 1.12.0 (2026-04-29): Removed dead code wrapper validAllowDomainsCounter.
+                         Calculates unused allowlist stats natively during
+                         the primary optimization loop avoiding O(N) penalty.
   - 1.10.0 (2026-04-29): Replaced heavy ReverseStr rune allocations with 
                          ReverseASCII zero-copy byte mapping. Punycode 
                          guarantees ASCII compliance safely. Drastically 
@@ -209,6 +212,8 @@ func buildOutputs(
 	}
 
 	var finalAllows map[string]struct{}
+	statsUnusedAllows := 0 // Tracks locally preventing full structural revalidation loops later
+
 	if optimizeAllow {
 		finalAllows = usedAllows
 		for dom := range allowDomains {
@@ -220,6 +225,8 @@ func buildOutputs(
 				if !suppressComments {
 					removedLogUnusedAllows = append(removedLogUnusedAllows, fmt.Sprintf("# %s - Removed from allowlist (Unused)", dom))
 				}
+				// Increment native unused statistic explicitly replacing dead validation function logic
+				statsUnusedAllows++
 			}
 		}
 	} else {
@@ -561,10 +568,6 @@ func buildOutputs(
 	}
 
 	if verbose {
-		statsUnusedAllows := 0
-		if optimizeAllow {
-			statsUnusedAllows = len(validAllowDomainsCounter(allowDomains, lessStrict, allowTLD)) - len(usedAllows)
-		}
 		logMsg("========== OPTIMIZATION STATS %s ==========", passName)
 		logMsg("Total Blocklist Domains Read: %d", len(blockDomains))
 		logMsg("Removed (Invalid/Unregistered): %d", statsInvalidStruct)
@@ -584,17 +587,6 @@ func buildOutputs(
 		}
 		logMsg("====================================================")
 	}
-}
-
-// validAllowDomainsCounter helper function for the verbose output logger cleanly validating lengths securely.
-func validAllowDomainsCounter(allowDomains map[string]struct{}, lessStrict bool, allowTLD bool) map[string]struct{} {
-	valid := make(map[string]struct{})
-	for dom := range allowDomains {
-		if err := shared.ValidateDomain(dom, lessStrict, allowTLD); err == nil {
-			valid[dom] = struct{}{}
-		}
-	}
-	return valid
 }
 
 // extractSortKey strictly pulls the root domain from a string array index safely handling comments and Adblock prefixes.

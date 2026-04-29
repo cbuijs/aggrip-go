@@ -1,14 +1,17 @@
 /*
 ==========================================================================
 Filename: clean-ip/main.go
-Version: 1.11.0-20260429
-Date: 2026-04-29 15:24 CEST
+Version: 1.12.0-20260429
+Date: 2026-04-29 15:32 CEST
 Description: Enterprise-grade IP blocklist optimizer. High-speed Go port
              of clean-ip.py. Aggregates IPs, CIDRs, ranges. Cross-references
              against allowlists, collapses redundant subnets, performs
              mathematical hole-punching, and exports to firewall formats.
 
 Changes:
+- v1.12.0 (2026-04-29): Eliminated O(N) memory scale regressions securely by
+                        pre-allocating output slices matching subset limits.
+                        Eliminates deep GC pressure and copying.
 - v1.11.0 (2026-04-29): Eliminated sync.Mutex and sync.WaitGroup contention 
                         bottlenecks during concurrent ingestion. Refactored 
                         to utilize strict lock-free channel fan-in arrays natively.
@@ -399,7 +402,9 @@ func main() {
 
 	logMsg(opts.Verbose, "--- Stage 4: Cross-Referencing & Hole Punching ---")
 
-	var filteredBlocks []netip.Prefix
+	// Pre-allocate map slice capacities tightly bound to expected payload limit natively.
+	// Bypasses massive O(N) internal scaling operations preventing GC stalls.
+	filteredBlocks := make([]netip.Prefix, 0, len(collapsedBlocks))
 	usedAllows := make(map[netip.Prefix]bool)
 	var removedLog []string
 
@@ -437,7 +442,10 @@ func main() {
 	// this engine recursively bisects the supernet (using binary Halve operations) creating 
 	// a perfectly calculated array of adjacent CIDR blocks safely routing entirely around 
 	// the exclusion hole without causing firewall configuration bypass leakage.
-	var finalBlocks []netip.Prefix
+	
+	// Slice capacity pre-allocation to prevent slice threshold reallocations explicitly.
+	finalBlocks := make([]netip.Prefix, 0, len(filteredBlocks))
+	
 	for _, block := range filteredBlocks {
 		currentPieces := []netip.Prefix{block}
 
@@ -467,7 +475,8 @@ func main() {
 	// Final cleanup matrix explicitly compressing fractured arrays.
 	finalBlocks = shared.CollapsePrefixes(finalBlocks)
 
-	var finalAllows []netip.Prefix
+	// Array capacity pre-allocation matching maximum allowable subsets securely.
+	finalAllows := make([]netip.Prefix, 0, len(collapsedAllows))
 	var removedAllowsLog []string
 
 	for _, allow := range collapsedAllows {

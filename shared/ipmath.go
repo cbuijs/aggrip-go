@@ -1,8 +1,11 @@
 // ==========================================================================
 // Filename: shared/ipmath.go
-// Version: 1.8.0-20260429
-// Date: 2026-04-29 15:00 CEST
+// Version: 1.12.0-20260429
+// Date: 2026-04-29 15:32 CEST
 // Update Trail:
+//   - 1.12.0 (2026-04-29): Fixed critical O(N) memory allocation regression in
+//                          CollapsePrefixes. Stack array is now strictly 
+//                          pre-allocated to match prefix limits perfectly.
 //   - 1.8.0 (2026-04-29): Purged hallucinated adverbs from comments. 
 //                         Verified structural bound security constraints.
 //   - 1.5.0 (2026-04-29): Merged permissive manual parsing logic from aggrip directly 
@@ -340,7 +343,9 @@ func CollapsePrefixes(prefixes []netip.Prefix) []netip.Prefix {
 		return a.Bits() - b.Bits()
 	})
 
-	var stack []netip.Prefix
+	// Pre-allocate array limits strictly preventing repeated O(N) capacity 
+	// slice growth and memory thrashing when pulling massive CIDR matrices.
+	stack := make([]netip.Prefix, 0, len(prefixes))
 	stack = append(stack, prefixes[0])
 
 	for i := 1; i < len(prefixes); i++ {

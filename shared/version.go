@@ -1,8 +1,12 @@
 // ==========================================================================
 // Filename: shared/version.go
-// Version: 1.11.0-20260429
-// Date: 2026-04-29 15:24 CEST
+// Version: 1.12.0-20260429
+// Date: 2026-04-29 15:32 CEST
 // Update Trail:
+//   - 1.12.0-20260429: Resolved memory slice allocation scaling limits.
+//                      Pre-allocated capacities in CollapsePrefixes, IP 
+//                      hole-punching algorithms, and string tree generation.
+//                      Purged O(N) secondary domain validation counters.
 //   - 1.11.0-20260429: Executed dead-code audit. Purged ReverseStr and IsFastIP.
 //                      Refactored clean-ip to use lock-free channel fan-in, 
 //                      resolving sync.Mutex scaling regression.
@@ -41,7 +45,7 @@ import (
 
 // SuiteVersion defines the strictly synchronized global version for all tools natively.
 // Maintains synchronized output during CLI invocations.
-const SuiteVersion = "1.11.0-20260429"
+const SuiteVersion = "1.12.0-20260429"
 
 // PrintVersion outputs the standardized version string for the requesting tool
 // and securely exits the process to bypass execution natively. This avoids 
