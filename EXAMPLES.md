@@ -13,7 +13,6 @@ clean-dom \
   -b https://big.oisd.nl/domainswild \
   -o unbound \
   --out-blocklist unbound-blocklist.conf \
-  --compress-hosts \
   -v
 ```
 
