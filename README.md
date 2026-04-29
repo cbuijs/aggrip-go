@@ -110,18 +110,18 @@ Requires Go 1.25.0+ for `clean-dom`, Go 1.21+ for `clean-ip`, and Go 1.22+ for `
 ```bash
 # Build clean-dom
 cd clean-dom
-go build -ldflags="-s -w" -o clean-dom main.go parser.go formatter.go validator.go
+go build -ldflags="-s -w" -o clean-dom ./clean-dom
 
 # Build clean-ip
 cd ../clean-ip
-go build -ldflags="-s -w" -o clean-ip main.go
+go build -ldflags="-s -w" -o clean-ip ./clean-ip
 
 # Build aggrip
 cd ../aggrip
-go build -ldflags="-s -w" -o aggrip main.go
+go build -ldflags="-s -w" -o aggrip ./aggrip
 
 # Build undup
 cd ../undup
-go build -ldflags="-s -w" -o undup main.go
+go build -ldflags="-s -w" -o undup ./undup
 ```
 
