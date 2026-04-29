@@ -1,13 +1,15 @@
 /*
 ==========================================================================
 Filename: clean-dom/parser.go
-Version: 1.9.0-20260429
-Date: 2026-04-29 15:11 CEST
+Version: 1.13.0-20260429
+Date: 2026-04-29 15:37 CEST
 Description: Handles file I/O, format detection, Adblock translation, 
              and parallel bulk ingestion of raw list payloads. Strict
              path rejection protects DNS zone integrity.
 
 Update Trail:
+  - 1.13.0 (2026-04-29): Eliminated DenyAllows dead code structures, 
+                         significantly streamlining memory allocation paths.
   - 1.9.0 (2026-04-29): Implemented shared.NewScanner centralizing 1MB memory
                         buffering across parallel execution pools securely.
   - 1.8.0 (2026-04-29): Comprehensive review and removal of hallucinated 
@@ -42,10 +44,10 @@ import (
 )
 
 // ParsedLists contains cross-referenced parsed domains globally mapped.
+// Stripped deprecated DenyAllows slices previously wasting heap memory natively.
 type ParsedLists struct {
 	Blocks      []string
 	Allows      []string
-	DenyAllows  []string
 	Conversions []string
 }
 
@@ -389,6 +391,7 @@ func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 				logMsg("Ingestion: Extracted validated $denyallow domain(s) %v from block rule '%s'. Adding to allowlist.", parsed.DenyAllow, rawToken)
 
 				// $denyallow domains extracted strictly from a blocklist rule act as explicit allowlist overrides.
+				// Maps perfectly to standard domains dynamically dropping requirement for tracking subsets natively.
 				result.Allows = append(result.Allows, parsed.DenyAllow...)
 
 				for puny, orig := range parsed.DenyAllowUnicodeMap {

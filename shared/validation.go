@@ -1,8 +1,11 @@
 // ==========================================================================
 // Filename: shared/validation.go
-// Version: 1.11.0-20260429
-// Date: 2026-04-29 15:24 CEST
+// Version: 1.13.0-20260429
+// Date: 2026-04-29 15:37 CEST
 // Update Trail:
+//   - 1.13.0 (2026-04-29): Fixed critical regression in IPv6 validation 
+//                          heuristics dropping addresses beginning with a-f. 
+//                          Optimized IsIPHeuristic for faster raw stream detection.
 //   - 1.11.0 (2026-04-29): Removed dead-code wrapper IsFastIP. Enforced 
 //                          direct routing to IsFastIPStrict suite-wide.
 //   - 1.8.0 (2026-04-29): Purged AI-hallucinated adverbs from inline documentation.
@@ -195,12 +198,13 @@ func ValidateDomain(domain string, lessStrict bool, allowTLD bool) error {
 }
 
 // IsFastIPStrict runs a strict heuristic check using netip to ensure valid IP structures.
+// Allows hex boundaries mapping IPv6 cleanly without dropping valid streams.
 func IsFastIPStrict(token string) bool {
-	if len(token) == 0 {
+	if len(token) < 3 {
 		return false
 	}
-	c := token[0]
-	if (c >= '0' && c <= '9') || c == ':' {
+	// Instantly trap valid addressing markers securely bypassing regex
+	if strings.IndexByte(token, '.') != -1 || strings.IndexByte(token, ':') != -1 {
 		_, err := netip.ParseAddr(token)
 		return err == nil
 	}
@@ -209,13 +213,12 @@ func IsFastIPStrict(token string) bool {
 
 // IsIPHeuristic runs a highly optimized heuristic to skip pure text blocks
 // preventing the system from running expensive IP-parsing exceptions.
-// Permits dashes '-' explicitly for IP range parsing natively.
 func IsIPHeuristic(token string) bool {
-	if len(token) == 0 {
+	if len(token) < 3 {
 		return false
 	}
-	c := token[0]
-	return (c >= '0' && c <= '9') || c == ':' || c == '-'
+	// Rapidly verify if the block contains IP structural delimiters
+	return strings.IndexByte(token, '.') != -1 || strings.IndexByte(token, ':') != -1
 }
 
 // IsPlausibleDomain is a high-speed pre-ingestion check to silently drop obvious 

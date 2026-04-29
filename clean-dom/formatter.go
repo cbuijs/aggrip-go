@@ -1,12 +1,14 @@
 /*
 ==========================================================================
 Filename: clean-dom/formatter.go
-Version: 1.12.0-20260429
-Date: 2026-04-29 15:32 CEST
+Version: 1.13.0-20260429
+Date: 2026-04-29 15:37 CEST
 Description: Handles deduplication, formatting, layout mapping, output 
              generation, comment injection, and disk writing operations.
 
 Update Trail:
+  - 1.13.0 (2026-04-29): Purged dead-code loops associated with deprecated 
+                         denyAllowOverrides structures, reducing O(N) limits.
   - 1.12.0 (2026-04-29): Removed dead code wrapper validAllowDomainsCounter.
                          Calculates unused allowlist stats natively during
                          the primary optimization loop avoiding O(N) penalty.
@@ -48,7 +50,6 @@ import (
 func buildOutputs(
 	blockDomains []string,
 	allowDomains map[string]struct{},
-	denyAllowOverrides map[string]struct{},
 	conversionLog []string,
 	activeTopN map[string]struct{},
 	extSuffix string,
@@ -104,16 +105,14 @@ func buildOutputs(
 		if len(allowDomains) > 0 {
 			for _, p := range parents {
 				if _, exists := allowDomains[p]; exists {
-					if _, override := denyAllowOverrides[p]; !override {
-						usedAllows[p] = struct{}{}
-						allowed = true
-						if !suppressComments {
-							// Formats the comment to explicitly extract and map against the parent/apex node.
-							removedLogGeneral = append(removedLogGeneral, fmt.Sprintf("# %s - Allowlisted subdomain removed: %s", p, domain))
-						}
-						statsAllowlisted++
-						break
+					usedAllows[p] = struct{}{}
+					allowed = true
+					if !suppressComments {
+						// Formats the comment to explicitly extract and map against the parent/apex node.
+						removedLogGeneral = append(removedLogGeneral, fmt.Sprintf("# %s - Allowlisted subdomain removed: %s", p, domain))
 					}
+					statsAllowlisted++
+					break
 				}
 			}
 			if allowed {

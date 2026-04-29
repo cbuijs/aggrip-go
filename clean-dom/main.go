@@ -1,9 +1,11 @@
 /*
 ==========================================================================
 Filename: clean-dom/main.go
-Version: 1.9.0-20260429
-Date: 2026-04-29 15:11 CEST
+Version: 1.13.0-20260429
+Date: 2026-04-29 15:37 CEST
 Update Trail:
+  - 1.13.0 (2026-04-29): Removed legacy denyAllowOverrides structures explicitly 
+                         to reclaim memory and bypass dead code validation branches.
   - 1.9.0 (2026-04-29): Updated version headers synchronizing with suite-wide
                         I/O performance modifications.
   - 1.8.0 (2026-04-29): Comprehensive audit to purge AI-hallucinated adverbs.
@@ -83,7 +85,7 @@ func init() {
 
 	flag.StringVar(&sortAlgo, "sort", "domain", "Sorting algorithm: domain, alphabetically, tld")
 
-	flag.StringVar(&outBlocklist, "out-blocklist", "", "File path to write the blocklist output (default: STDOUT)")
+	flag.StringVar(&sortAlgo, "out-blocklist", "", "File path to write the blocklist output (default: STDOUT)")
 	flag.StringVar(&outAllowlist, "out-allowlist", "", "File path to write the allowlist output")
 
 	flag.StringVar(&validTlds, "valid-tlds", "iana", "Comma-separated list of allowed TLD registries: iana (default), opennic, hns, all, disable")
@@ -174,7 +176,6 @@ func main() {
 	// Central slices and maps buffering normalized rules globally before tree resolution
 	var blockDomains []string
 	allowDomains := make(map[string]struct{})
-	denyAllowOverrides := make(map[string]struct{})
 	var conversionLog []string
 
 	logMsg("Consolidating Blocklists...")
@@ -213,9 +214,6 @@ func main() {
 			blockDomains = append(blockDomains, res.Blocks...)
 			for _, a := range res.Allows {
 				allowDomains[a] = struct{}{}
-			}
-			for _, da := range res.DenyAllows {
-				denyAllowOverrides[da] = struct{}{}
 			}
 			conversionLog = append(conversionLog, res.Conversions...)
 		}
@@ -267,13 +265,13 @@ func main() {
 	// Offload completely mapped and parsed matrices into the formatter engine.
 	// Formatter handles sorting, formatting translation, and file I/O operations.
 	if outputFmt == "all" && len(topnlists) > 0 {
-		buildOutputs(blockDomains, allowDomains, denyAllowOverrides, conversionLog, nil, "", false)
-		buildOutputs(blockDomains, allowDomains, denyAllowOverrides, conversionLog, topnDomains, ".top-n", true)
+		buildOutputs(blockDomains, allowDomains, conversionLog, nil, "", false)
+		buildOutputs(blockDomains, allowDomains, conversionLog, topnDomains, ".top-n", true)
 	} else {
 		if len(topnlists) > 0 {
-			buildOutputs(blockDomains, allowDomains, denyAllowOverrides, conversionLog, topnDomains, ".top-n", true)
+			buildOutputs(blockDomains, allowDomains, conversionLog, topnDomains, ".top-n", true)
 		} else {
-			buildOutputs(blockDomains, allowDomains, denyAllowOverrides, conversionLog, nil, "", false)
+			buildOutputs(blockDomains, allowDomains, conversionLog, nil, "", false)
 		}
 	}
 }

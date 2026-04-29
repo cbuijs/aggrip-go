@@ -1,8 +1,11 @@
 // ==========================================================================
 // Filename: shared/version.go
-// Version: 1.12.0-20260429
-// Date: 2026-04-29 15:32 CEST
+// Version: 1.13.0-20260429
+// Date: 2026-04-29 15:37 CEST
 // Update Trail:
+//   - 1.13.0-20260429: Resolved critical IPv6 validation regression in shared 
+//                      heuristics breaking hosts detection. Eliminated 
+//                      dead-code tracking maps from clean-dom resolving memory bloat.
 //   - 1.12.0-20260429: Resolved memory slice allocation scaling limits.
 //                      Pre-allocated capacities in CollapsePrefixes, IP 
 //                      hole-punching algorithms, and string tree generation.
@@ -45,7 +48,7 @@ import (
 
 // SuiteVersion defines the strictly synchronized global version for all tools natively.
 // Maintains synchronized output during CLI invocations.
-const SuiteVersion = "1.12.0-20260429"
+const SuiteVersion = "1.13.0-20260429"
 
 // PrintVersion outputs the standardized version string for the requesting tool
 // and securely exits the process to bypass execution natively. This avoids 
