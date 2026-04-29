@@ -1,11 +1,13 @@
 // ==========================================================================
 // Filename: shared/strings.go
-// Version: 1.8.0-20260429
-// Date: 2026-04-29 15:00 CEST
+// Version: 1.11.0-20260429
+// Date: 2026-04-29 15:24 CEST
 // Description: Centralized string manipulation and reversal utilities driving
 //              O(N log N) deduplication trees.
 //
 // Update Trail:
+//   - 1.11.0 (2026-04-29): Removed deprecated and unused ReverseStr 
+//                          rune-level allocation block (Dead Code).
 //   - 1.8.0 (2026-04-29): Purged hallucinated adverb trails. Verified logic.
 //   - 1.6.0 (2026-04-29): Migrated IsASCII and GetDomainParents natively into central bounds.
 // ==========================================================================
@@ -25,16 +27,6 @@ func ReverseASCII(s string) string {
 		b[len(s)-1-i] = s[i]
 	}
 	return string(b)
-}
-
-// ReverseStr performs a rapid rune-level reverse string operation for 
-// O(N log N) deduplication sorting. Handles Unicode IDNA safely.
-func ReverseStr(s string) string {
-	r := []rune(s)
-	for i, j := 0, len(r)-1; i < j; i, j = i+1, j-1 {
-		r[i], r[j] = r[j], r[i]
-	}
-	return string(r)
 }
 
 // IsASCII runs a high-speed boundary check verifying if a string strictly

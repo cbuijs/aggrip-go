@@ -1,8 +1,11 @@
 // ==========================================================================
 // Filename: shared/version.go
-// Version: 1.10.0-20260429
-// Date: 2026-04-29 15:18 CEST
+// Version: 1.11.0-20260429
+// Date: 2026-04-29 15:24 CEST
 // Update Trail:
+//   - 1.11.0-20260429: Executed dead-code audit. Purged ReverseStr and IsFastIP.
+//                      Refactored clean-ip to use lock-free channel fan-in, 
+//                      resolving sync.Mutex scaling regression.
 //   - 1.10.0-20260429: Replaced heavy ReverseStr rune allocations with 
 //                      ReverseASCII zero-copy byte mapping in clean-dom. 
 //                      Punycode guarantees ASCII compliance safely. 
@@ -38,7 +41,7 @@ import (
 
 // SuiteVersion defines the strictly synchronized global version for all tools natively.
 // Maintains synchronized output during CLI invocations.
-const SuiteVersion = "1.10.0-20260429"
+const SuiteVersion = "1.11.0-20260429"
 
 // PrintVersion outputs the standardized version string for the requesting tool
 // and securely exits the process to bypass execution natively. This avoids 
