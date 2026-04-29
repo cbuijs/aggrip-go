@@ -1,8 +1,11 @@
 // ==========================================================================
 // Filename: shared/ipmath.go
-// Version: 1.12.0-20260429
-// Date: 2026-04-29 15:32 CEST
+// Version: 1.14.0-20260429
+// Date: 2026-04-29 15:45 CEST
 // Update Trail:
+//   - 1.14.0 (2026-04-29): Fixed critical regression panic in CollapsePrefixes 
+//                          where mathematically resolving a /0 array triggered 
+//                          a negative bounds integer underflow exception natively.
 //   - 1.12.0 (2026-04-29): Fixed critical O(N) memory allocation regression in
 //                          CollapsePrefixes. Stack array is now strictly 
 //                          pre-allocated to match prefix limits perfectly.
@@ -366,7 +369,9 @@ func CollapsePrefixes(prefixes []netip.Prefix) []netip.Prefix {
 			p1 := stack[len(stack)-2]
 			p2 := stack[len(stack)-1]
 
-			if p1.Bits() == p2.Bits() {
+			// FIXED CRITICAL PANIC: Prevents bounds checks passing a negative bit length 
+			// into netip.PrefixFrom which strictly panics if given `-1` for a `0.0.0.0/0` prefix.
+			if p1.Bits() == p2.Bits() && p1.Bits() > 0 {
 				super := netip.PrefixFrom(p1.Addr(), p1.Bits()-1).Masked()
 				h1, h2 := Halve(super)
 				// Ensure strict binary parity validating the subnets formulate the projected parent.

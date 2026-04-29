@@ -1,9 +1,11 @@
 /*
 ==========================================================================
 Filename: clean-dom/main.go
-Version: 1.13.0-20260429
-Date: 2026-04-29 15:37 CEST
+Version: 1.14.0-20260429
+Date: 2026-04-29 15:45 CEST
 Update Trail:
+  - 1.14.0 (2026-04-29): Fixed critical CLI flag regression where --out-blocklist 
+                         incorrectly bound to the sortAlgo memory address.
   - 1.13.0 (2026-04-29): Removed legacy denyAllowOverrides structures explicitly 
                          to reclaim memory and bypass dead code validation branches.
   - 1.9.0 (2026-04-29): Updated version headers synchronizing with suite-wide
@@ -85,7 +87,9 @@ func init() {
 
 	flag.StringVar(&sortAlgo, "sort", "domain", "Sorting algorithm: domain, alphabetically, tld")
 
-	flag.StringVar(&sortAlgo, "out-blocklist", "", "File path to write the blocklist output (default: STDOUT)")
+	// FIXED CRITICAL REGRESSION: Memory address mapping collision. 
+	// Previously pointed &sortAlgo incorrectly to out-blocklist flag.
+	flag.StringVar(&outBlocklist, "out-blocklist", "", "File path to write the blocklist output (default: STDOUT)")
 	flag.StringVar(&outAllowlist, "out-allowlist", "", "File path to write the allowlist output")
 
 	flag.StringVar(&validTlds, "valid-tlds", "iana", "Comma-separated list of allowed TLD registries: iana (default), opennic, hns, all, disable")

@@ -1,8 +1,11 @@
 // ==========================================================================
 // Filename: shared/validation.go
-// Version: 1.13.0-20260429
-// Date: 2026-04-29 15:37 CEST
+// Version: 1.14.0-20260429
+// Date: 2026-04-29 15:45 CEST
 // Update Trail:
+//   - 1.14.0 (2026-04-29): Added missing A-Z bounds block in IsValidDomain, 
+//                          ensuring shared validation perfectly handles streams 
+//                          that were not explicitly pre-lowercased natively.
 //   - 1.13.0 (2026-04-29): Fixed critical regression in IPv6 validation 
 //                          heuristics dropping addresses beginning with a-f. 
 //                          Optimized IsIPHeuristic for faster raw stream detection.
@@ -240,7 +243,8 @@ func IsPlausibleDomain(domain string) bool {
 func IsValidDomain(b []byte, lessStrict bool) bool {
 	for i := 0; i < len(b); i++ {
 		c := b[i]
-		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '-' {
+		// FIXED REGRESSION: Add robust A-Z casing bounds protecting shared suite matrices.
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '-' {
 			continue
 		}
 		if lessStrict && (c == '_' || c == '*') {
