@@ -1,9 +1,11 @@
 /*
 ==========================================================================
 Filename: aggrip/main.go
-Version: 1.8.0-20260429
-Date: 2026-04-29 15:00 CEST
+Version: 1.9.0-20260429
+Date: 2026-04-29 15:11 CEST
 Update Trail:
+  - v1.9.0 (2026-04-29): Integrated centralized shared.NewScanner and shared.NewWriter 
+                         for uniform 1MB high-speed memory buffering.
   - v1.8.0 (2026-04-29): Comprehensive audit. Purged hallucinated adverb trails 
                          from documentation. Verified concurrent execution safety.
   - v1.6.0 (2026-04-29): Upgraded output writer to explicitly utilize a 1MB 
@@ -27,7 +29,6 @@ Description: High-performance Go utility to aggregate IPs into a CIDR list.
 package main
 
 import (
-	"bufio"
 	"flag"
 	"fmt"
 	"net/netip"
@@ -139,12 +140,9 @@ func main() {
 	// CollapsePrefixes function separates and sorts IPv4 from IPv6.
 	networks := make([]netip.Prefix, 0, 200000)
 
-	// Create a high-performance buffered scanner mapped to the configured input stream.
-	scanner := bufio.NewScanner(inStream)
-
-	// Increase buffer size to prevent token-too-long errors on deeply polluted lines.
-	buf := make([]byte, 64*1024)
-	scanner.Buffer(buf, 1024*1024)
+	// Create a high-performance buffered scanner mapped to the configured input stream 
+	// using the central 1MB limit.
+	scanner := shared.NewScanner(inStream)
 
 	logMsg("Beginning high-speed ingestion and validation...")
 
@@ -194,7 +192,7 @@ func main() {
 	// --- Stage 4: Pipeline Output ---
 	// Wrapping the output stream in an explicitly sized 1MB bufio.Writer drastically speeds 
 	// up IPC streaming by batching OS system calls directly to disk or STDOUT pipelines.
-	writer := bufio.NewWriterSize(outStream, 1024*1024)
+	writer := shared.NewWriter(outStream)
 	defer writer.Flush()
 
 	for _, p := range mergedNetworks {

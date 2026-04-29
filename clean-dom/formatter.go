@@ -1,12 +1,14 @@
 /*
 ==========================================================================
 Filename: clean-dom/formatter.go
-Version: 1.8.0-20260429
-Date: 2026-04-29 15:00 CEST
+Version: 1.9.0-20260429
+Date: 2026-04-29 15:11 CEST
 Description: Handles deduplication, formatting, layout mapping, output 
              generation, comment injection, and disk writing operations.
 
 Update Trail:
+  - 1.9.0 (2026-04-29): Resolved critical unbuffered I/O performance bottleneck
+                        by wrapping outBlock and outAllow in central 1MB Writers.
   - 1.8.0 (2026-04-29): Purged AI-hallucinated adverb trails from documentation 
                         to maintain enterprise code quality and clarity.
   - 1.6.0 (2026-04-29): Replaced local getParents with centralized shared.GetDomainParents.
@@ -22,6 +24,7 @@ Update Trail:
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"log"
 	"os"
@@ -291,34 +294,39 @@ func buildOutputs(
 			defer outAllow.Close()
 		}
 
+		// Initialize extreme-performance bounded writers guarding directly against slow I/O calls
+		var bwBlock, bwAllow *bufio.Writer
+
 		if outBlock != nil {
+			bwBlock = shared.NewWriter(outBlock)
 			if fmtType == "adblock" {
-				outBlock.WriteString(fmt.Sprintf("[Adblock Plus]\n! version: %d\n", time.Now().Unix()))
+				bwBlock.WriteString(fmt.Sprintf("[Adblock Plus]\n! version: %d\n", time.Now().Unix()))
 			} else if fmtType == "rpz" {
-				outBlock.WriteString("$TTL 3600\n@ IN SOA localhost. root.localhost. 1 3600 900 2592000 300\n")
+				bwBlock.WriteString("$TTL 3600\n@ IN SOA localhost. root.localhost. 1 3600 900 2592000 300\n")
 			}
 		}
 
 		// Dynamically reroute the allowlist payload directly into the blocklist output file 
 		// explicitly for unified configuration structures (Dnsmasq, Unbound, Adblock, RPZ).
-		var targetAllow *os.File
+		var bwTargetAllow *bufio.Writer
 		if outAllow != nil {
-			targetAllow = outAllow
+			bwAllow = shared.NewWriter(outAllow)
+			bwTargetAllow = bwAllow
 			if fmtType == "adblock" {
-				targetAllow.WriteString(fmt.Sprintf("[Adblock Plus]\n! version: %d\n", time.Now().Unix()))
+				bwTargetAllow.WriteString(fmt.Sprintf("[Adblock Plus]\n! version: %d\n", time.Now().Unix()))
 			} else if fmtType == "rpz" {
-				targetAllow.WriteString("$TTL 3600\n@ IN SOA localhost. root.localhost. 1 3600 900 2592000 300\n")
+				bwTargetAllow.WriteString("$TTL 3600\n@ IN SOA localhost. root.localhost. 1 3600 900 2592000 300\n")
 			}
-		} else if outBlock != nil && (fmtType == "dnsmasq" || fmtType == "unbound" || fmtType == "adblock" || fmtType == "rpz") {
-			targetAllow = outBlock
+		} else if bwBlock != nil && (fmtType == "dnsmasq" || fmtType == "unbound" || fmtType == "adblock" || fmtType == "rpz") {
+			bwTargetAllow = bwBlock
 		}
 
-		if targetAllow != nil && hasAllowPayload {
+		if bwTargetAllow != nil && hasAllowPayload {
 			var allowSlice []string
 
 			// In unified Adblock output, we use standaloneAllows to prevent 
 			// redundant @@|| rules for domains already mapped to $denyallow overrides accurately.
-			if fmtType == "adblock" && outAllow == nil {
+			if fmtType == "adblock" && bwAllow == nil {
 				allowSlice = append(allowSlice, standaloneAllows...)
 			} else {
 				for k := range finalAllows {
@@ -361,33 +369,33 @@ func buildOutputs(
 					cleanComment := strings.TrimSpace(strings.TrimPrefix(item, "#"))
 					switch fmtType {
 					case "adblock":
-						targetAllow.WriteString(fmt.Sprintf("! %s\n", cleanComment))
+						bwTargetAllow.WriteString(fmt.Sprintf("! %s\n", cleanComment))
 					case "rpz":
-						targetAllow.WriteString(fmt.Sprintf("; %s\n", cleanComment))
+						bwTargetAllow.WriteString(fmt.Sprintf("; %s\n", cleanComment))
 					default:
-						targetAllow.WriteString(fmt.Sprintf("# %s\n", cleanComment))
+						bwTargetAllow.WriteString(fmt.Sprintf("# %s\n", cleanComment))
 					}
 					continue
 				}
 
 				switch fmtType {
 				case "adblock":
-					targetAllow.WriteString(fmt.Sprintf("@@||%s^\n", item))
+					bwTargetAllow.WriteString(fmt.Sprintf("@@||%s^\n", item))
 				case "rpz":
-					targetAllow.WriteString(fmt.Sprintf("%s CNAME rpz-passthru.\n*.%s CNAME rpz-passthru.\n", item, item))
+					bwTargetAllow.WriteString(fmt.Sprintf("%s CNAME rpz-passthru.\n*.%s CNAME rpz-passthru.\n", item, item))
 				case "routedns", "squid":
-					targetAllow.WriteString(fmt.Sprintf(".%s\n", item))
+					bwTargetAllow.WriteString(fmt.Sprintf(".%s\n", item))
 				case "dnsmasq":
-					targetAllow.WriteString(fmt.Sprintf("server=/%s/#\n", item))
+					bwTargetAllow.WriteString(fmt.Sprintf("server=/%s/#\n", item))
 				case "unbound":
-					targetAllow.WriteString(fmt.Sprintf("local-zone: \"%s\" transparent\n", item))
+					bwTargetAllow.WriteString(fmt.Sprintf("local-zone: \"%s\" transparent\n", item))
 				default:
-					targetAllow.WriteString(fmt.Sprintf("%s\n", item))
+					bwTargetAllow.WriteString(fmt.Sprintf("%s\n", item))
 				}
 			}
 		}
 
-		if outBlock != nil {
+		if bwBlock != nil {
 			var outputItems []string
 			if fmtType == "hosts" {
 				for k := range filteredBlocks {
@@ -408,8 +416,8 @@ func buildOutputs(
 				}
 
 				// Only map unused allows to the blocklist if a separate allowlist file was NOT generated
-				// AND we didn't explicitly route them dynamically to outBlock.
-				if outAllow == nil && fmtType != "dnsmasq" && fmtType != "unbound" && fmtType != "adblock" && fmtType != "rpz" {
+				// AND we didn't explicitly route them dynamically to bwBlock.
+				if bwAllow == nil && fmtType != "dnsmasq" && fmtType != "unbound" && fmtType != "adblock" && fmtType != "rpz" {
 					outputItems = append(outputItems, removedLogUnusedAllows...)
 				}
 
@@ -475,7 +483,7 @@ func buildOutputs(
 			// Inline closure isolating the compression flush mapping to disk.
 			flushHosts := func() {
 				if len(hostsBuffer) > 0 {
-					outBlock.WriteString(fmt.Sprintf("0.0.0.0 %s\n", strings.Join(hostsBuffer, " ")))
+					bwBlock.WriteString(fmt.Sprintf("0.0.0.0 %s\n", strings.Join(hostsBuffer, " ")))
 					hostsBuffer = hostsBuffer[:0]
 				}
 			}
@@ -492,11 +500,11 @@ func buildOutputs(
 
 					switch fmtType {
 					case "adblock":
-						outBlock.WriteString(fmt.Sprintf("! %s\n", cleanComment))
+						bwBlock.WriteString(fmt.Sprintf("! %s\n", cleanComment))
 					case "rpz":
-						outBlock.WriteString(fmt.Sprintf("; %s\n", cleanComment))
+						bwBlock.WriteString(fmt.Sprintf("; %s\n", cleanComment))
 					default:
-						outBlock.WriteString(fmt.Sprintf("# %s\n", cleanComment))
+						bwBlock.WriteString(fmt.Sprintf("# %s\n", cleanComment))
 					}
 				} else {
 					switch fmtType {
@@ -507,25 +515,25 @@ func buildOutputs(
 								flushHosts()
 							}
 						} else {
-							outBlock.WriteString(fmt.Sprintf("0.0.0.0 %s\n", item))
+							bwBlock.WriteString(fmt.Sprintf("0.0.0.0 %s\n", item))
 						}
 					case "dnsmasq":
-						outBlock.WriteString(fmt.Sprintf("server=/%s/\n", item))
+						bwBlock.WriteString(fmt.Sprintf("server=/%s/\n", item))
 					case "unbound":
-						outBlock.WriteString(fmt.Sprintf("local-zone: \"%s\" always_nxdomain\n", item))
+						bwBlock.WriteString(fmt.Sprintf("local-zone: \"%s\" always_nxdomain\n", item))
 					case "rpz":
-						outBlock.WriteString(fmt.Sprintf("%s CNAME .\n*.%s CNAME .\n", item, item))
+						bwBlock.WriteString(fmt.Sprintf("%s CNAME .\n*.%s CNAME .\n", item, item))
 					case "routedns", "squid":
-						outBlock.WriteString(fmt.Sprintf(".%s\n", item))
+						bwBlock.WriteString(fmt.Sprintf(".%s\n", item))
 					case "adblock":
 						if exc, ok := adblockRules[item]; ok && len(exc) > 0 {
 							sort.Strings(exc)
-							outBlock.WriteString(fmt.Sprintf("||%s^$denyallow=%s\n", item, strings.Join(exc, "|")))
+							bwBlock.WriteString(fmt.Sprintf("||%s^$denyallow=%s\n", item, strings.Join(exc, "|")))
 						} else {
-							outBlock.WriteString(fmt.Sprintf("||%s^\n", item))
+							bwBlock.WriteString(fmt.Sprintf("||%s^\n", item))
 						}
 					default:
-						outBlock.WriteString(fmt.Sprintf("%s\n", item))
+						bwBlock.WriteString(fmt.Sprintf("%s\n", item))
 					}
 				}
 			}
@@ -534,6 +542,14 @@ func buildOutputs(
 			if fmtType == "hosts" && compressHosts.Active {
 				flushHosts()
 			}
+		}
+
+		// Strictly guarantee complete pipeline cache purge natively safely.
+		if bwBlock != nil {
+			bwBlock.Flush()
+		}
+		if bwAllow != nil {
+			bwAllow.Flush()
 		}
 	}
 

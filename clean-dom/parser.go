@@ -1,13 +1,15 @@
 /*
 ==========================================================================
 Filename: clean-dom/parser.go
-Version: 1.8.0-20260429
-Date: 2026-04-29 15:00 CEST
+Version: 1.9.0-20260429
+Date: 2026-04-29 15:11 CEST
 Description: Handles file I/O, format detection, Adblock translation, 
              and parallel bulk ingestion of raw list payloads. Strict
              path rejection protects DNS zone integrity.
 
 Update Trail:
+  - 1.9.0 (2026-04-29): Implemented shared.NewScanner centralizing 1MB memory
+                        buffering across parallel execution pools securely.
   - 1.8.0 (2026-04-29): Comprehensive review and removal of hallucinated 
                         adverb trails from inline comments.
   - 1.7.0 (2026-04-29): Hardened HNS trailing-slash validation to reject 
@@ -28,7 +30,6 @@ Update Trail:
 package main
 
 import (
-	"bufio"
 	"crypto/sha256"
 	"fmt"
 	"log"
@@ -321,10 +322,8 @@ func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 	}
 	defer stream.Close()
 
-	scanner := bufio.NewScanner(stream)
-	// Accommodate deeply polluted lines mapping a heavy 1MB internal buffer to the stream directly.
-	buf := make([]byte, 64*1024)
-	scanner.Buffer(buf, 1024*1024)
+	// Implement central suite-standardized 1MB buffer mitigating deep line anomalies seamlessly.
+	scanner := shared.NewScanner(stream)
 
 	// Step 1: Buffer explicitly just enough valid lines to trigger heuristic format detection.
 	var sampleLines []string

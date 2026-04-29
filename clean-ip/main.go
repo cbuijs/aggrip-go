@@ -1,14 +1,17 @@
 /*
 ==========================================================================
 Filename: clean-ip/main.go
-Version: 1.8.0-20260429
-Date: 2026-04-29 15:00 CEST
+Version: 1.9.0-20260429
+Date: 2026-04-29 15:11 CEST
 Description: Enterprise-grade IP blocklist optimizer. High-speed Go port
              of clean-ip.py. Aggregates IPs, CIDRs, ranges. Cross-references
              against allowlists, collapses redundant subnets, performs
              mathematical hole-punching, and exports to firewall formats.
 
 Changes:
+- v1.9.0 (2026-04-29): Deprecated scattered bufio configurations substituting
+                       them cleanly with globally bounded shared.NewScanner 
+                       and shared.NewWriter metrics natively.
 - v1.8.0 (2026-04-29): Comprehensive cleanup of adverbs across all comments.
                        Regression tested. Memory limits evaluated and secured.
 - v1.7.0 (2026-04-29): Fixed critical bufio.Scanner initialization regression 
@@ -28,7 +31,6 @@ Changes:
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"flag"
 	"fmt"
@@ -79,13 +81,9 @@ func fetchAndParse(source string, strict bool, verbose bool) ([]netip.Prefix, er
 	defer stream.Close()
 
 	var networks []netip.Prefix
-	scanner := bufio.NewScanner(stream)
 
-	// Pre-allocate a 1MB buffer for processing massive blocklists with giant lines
-	// explicitly neutralizing "token too long" faults natively.
-	// REPAIR: Bound byte slice correctly to prevent capacity expansion zero-panics.
-	buf := make([]byte, 64*1024)
-	scanner.Buffer(buf, 1024*1024)
+	// Centralized scanner neutralizing "token too long" faults natively via 1MB memory bounds.
+	scanner := shared.NewScanner(stream)
 
 	// Custom tokenizer dropping all spaces, tabs, equal signs, and dashes natively.
 	// This inherently merges spaced ranges (1.1 1.2) and dashed ranges (1.1-1.2)
@@ -493,9 +491,9 @@ func main() {
 		outB = f
 	}
 
-	// Wrap targets with 1MB buffered writers to maximize I/O performance.
+	// Wrap targets with 1MB buffered writers centrally to maximize I/O performance.
 	// Minimizes GC allocations bypassing system interrupt loads explicitly.
-	bwBlock := bufio.NewWriterSize(outB, 1024*1024)
+	bwBlock := shared.NewWriter(outB)
 	defer bwBlock.Flush()
 
 	if opts.OutAllowlist != "" {
@@ -506,7 +504,7 @@ func main() {
 		}
 		defer f.Close()
 
-		bwAllow := bufio.NewWriterSize(f, 1024*1024)
+		bwAllow := shared.NewWriter(f)
 		for _, net := range finalAllows {
 			bwAllow.WriteString(formatAllowNetwork(net, opts.Output, opts.RangeSep) + "\n")
 		}

@@ -1,7 +1,7 @@
 // ==========================================================================
 // Filename: shared/io.go
-// Version: 1.8.0-20260429
-// Date: 2026-04-29 15:00 CEST
+// Version: 1.9.0-20260429
+// Date: 2026-04-29 15:11 CEST
 // Description: Centralized file and HTTP streaming utilities maximizing
 //              I/O throughput for massive enterprise datasets.
 // ==========================================================================
@@ -9,6 +9,7 @@
 package shared
 
 import (
+	"bufio"
 	"io"
 	"net/http"
 	"os"
@@ -39,5 +40,20 @@ func FetchStream(source string) (io.ReadCloser, error) {
 
 	// Fallback to local file execution natively mapping direct to disk
 	return os.Open(source)
+}
+
+// NewScanner creates a highly optimized bufio.Scanner equipped with a 1MB maximum buffer natively.
+// Explicitly neutralizes "token too long" faults on deeply polluted, massive payload lines.
+func NewScanner(r io.Reader) *bufio.Scanner {
+	scanner := bufio.NewScanner(r)
+	buf := make([]byte, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+	return scanner
+}
+
+// NewWriter creates a highly optimized bufio.Writer explicitly constrained to a 1MB internal buffer.
+// Drastically accelerates throughput by batching OS system disk writes securely.
+func NewWriter(w io.Writer) *bufio.Writer {
+	return bufio.NewWriterSize(w, 1024*1024)
 }
 

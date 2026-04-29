@@ -1,8 +1,11 @@
 // ==========================================================================
 // Filename: shared/version.go
-// Version: 1.8.0-20260429
-// Date: 2026-04-29 15:00 CEST
+// Version: 1.9.0-20260429
+// Date: 2026-04-29 15:11 CEST
 // Update Trail:
+//   - 1.9.0-20260429: Centralized high-performance 1MB buffered I/O functions.
+//                     Fixed unbuffered disk writes in clean-dom formatter.
+//                     Purged dead code and duplicate boilerplate.
 //   - 1.8.0-20260429: Massive cleanup of AI-hallucinated adverb trails across 
 //                     all tool comments. Codebase regression verification and 
 //                     concurrency hardening.
@@ -31,7 +34,7 @@ import (
 
 // SuiteVersion defines the strictly synchronized global version for all tools natively.
 // Maintains synchronized output during CLI invocations.
-const SuiteVersion = "1.8.0-20260429"
+const SuiteVersion = "1.9.0-20260429"
 
 // PrintVersion outputs the standardized version string for the requesting tool
 // and securely exits the process to bypass execution natively. This avoids 

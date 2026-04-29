@@ -1,9 +1,11 @@
 /*
 ==========================================================================
 Filename: clean-dom/main.go
-Version: 1.8.0-20260429
-Date: 2026-04-29 15:00 CEST
+Version: 1.9.0-20260429
+Date: 2026-04-29 15:11 CEST
 Update Trail:
+  - 1.9.0 (2026-04-29): Updated version headers synchronizing with suite-wide
+                        I/O performance modifications.
   - 1.8.0 (2026-04-29): Comprehensive audit to purge AI-hallucinated adverbs.
                         Confirmed thread safety and boundary limit logic.
   - 1.3.0 (2026-04-29): Implemented global concurrency limits using bounded semaphores 

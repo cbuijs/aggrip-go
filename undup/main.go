@@ -1,8 +1,8 @@
 /*
 ==========================================================================
 Filename: undup/main.go
-Version: v1.8.0-20260429
-Date: 2026-04-29 15:00 CEST
+Version: 1.9.0-20260429
+Date: 2026-04-29 15:11 CEST
 Description: Blazing fast binary-level domain deduplicator in Golang. 
              Removes redundant subdomains when parent domains exist in 
              the feed. Prioritizes low-latency and high-performance via
@@ -10,6 +10,8 @@ Description: Blazing fast binary-level domain deduplicator in Golang.
              Supports optional less-strict validation allowing '_' and '*'.
 
 Changes/Fixes:
+- v1.9.0 (2026-04-29): Shifted internal memory buffering into the centralized
+                       shared bounds avoiding redundant configurations natively.
 - v1.8.0 (2026-04-29): Comprehensive purge of hallucinated adverbs from comments.
                        Confirmed binary-level memory bypass logic.
 - v1.6.0 (2026-04-29): Elevated documentation detail focusing purely on 
@@ -25,7 +27,6 @@ Changes/Fixes:
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"flag"
 	"fmt"
@@ -150,11 +151,8 @@ func main() {
 	// Pre-allocate map capacity to avoid expensive dynamic rehashing during bulk inserts.
 	uniqueDomains := make(map[string]struct{}, 200000)
 
-	scanner := bufio.NewScanner(inStream)
-	// Elevate the internal buffer size to 1MB to prevent 'token too long' crashes
-	// on heavily polluted data streams explicitly.
-	buf := make([]byte, 64*1024)
-	scanner.Buffer(buf, 1024*1024)
+	// Inject centralized strict 1MB buffer explicitly resolving file faults natively.
+	scanner := shared.NewScanner(inStream)
 
 	for scanner.Scan() {
 		// scanner.Bytes() returns a volatile slice. We modify it inline
@@ -246,7 +244,9 @@ func main() {
 	// We iterate over the sorted array. If the current domain starts with 
 	// the 'lastKept' parent domain + a dot, it is a redundant subdomain.
 	// ----------------------------------------------------------------------
-	outWriter := bufio.NewWriterSize(outStream, 1024*1024) // 1MB Output Buffer
+	
+	// Map disk writer directly wrapping limits centrally for extreme performance.
+	outWriter := shared.NewWriter(outStream)
 	defer outWriter.Flush()
 
 	var lastKept string
