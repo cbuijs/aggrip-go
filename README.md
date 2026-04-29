@@ -106,7 +106,7 @@ undup -i mixed_domains.txt -o clean_domains.txt -l -v
 ## Building from Source
 
 ```bash
-# Change to main rep directory
+# Change to main parrent/root directory
 cd aggrip-go
 
 # Build aggrip
