@@ -1,8 +1,8 @@
 /*
 ==========================================================================
 Filename: undup/main.go
-Version: v0.22-20260429
-Date: 2026-04-29 10:48 CEST
+Version: v1.2.1-20260429
+Date: 2026-04-29 11:52 CEST
 Description: Blazing fast binary-level domain deduplicator in Golang. 
              Removes redundant subdomains when parent domains exist in 
              the feed. Prioritizes low-latency and high-performance via
@@ -10,24 +10,8 @@ Description: Blazing fast binary-level domain deduplicator in Golang.
              Supports optional less-strict validation allowing '_' and '*'.
 
 Changes/Fixes:
-- v0.22 (2026-04-29): Refactored to utilize centralized shared library 
-                      (aggrip-go/shared). Abstracted duplicated validation 
-                      heuristics natively.
-- v0.21 (2026-04-29): Explicitly mapped --help and -h flags natively.
-- v0.20 (2026-04-25): Major memory optimization. Replaced io.ReadAll and 
-                      bytes.Split with a high-performance streaming bufio.Scanner.
-                      Drops memory consumption by >50% on large datasets by 
-                      avoiding massive multi-dimensional byte arrays. Standardized
-                      help flags.
-- v0.19 (2026-04-23): Standardized CLI arguments across the aggrip-go suite.
-                      Added file I/O support (-i/-o) matching aggrip to drop 
-                      the strict reliance on UNIX piping, + verbose modes.
-- v0.18 (2026-04-23): Complete Go rewrite utilizing advanced concurrency,
-                      memory-safe byte slicing, and zero-copy evaluations.
-                      Drop-in replacement for undup.py/undup2.py.
-- v0.17 (2026-04-16): Added regex strictness validation (-l/--less-strict).
-- v0.16 (2026-04-07): Merged stripping rules, added docstrings.
-- v0.15 (2026-04-01): Original Python version.
+- v1.2.1 (2026-04-29): Centralized suite versioning to shared/version.go.
+- v1.2.0 (2026-04-29): Synced suite version up to 1.2.0. Standardized CLI.
 ==========================================================================
 */
 
@@ -115,10 +99,9 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Hardened trap: display version and exit silently.
+	// Trap version flag and output the globally synchronized suite version dynamically
 	if showVersion {
-		fmt.Println("undup Go Edition - Version v0.22-20260429")
-		os.Exit(0)
+		shared.PrintVersion("undup")
 	}
 
 	// ----------------------------------------------------------------------

@@ -1,34 +1,16 @@
 /*
 ==========================================================================
 Filename: clean-dom/parser.go
-Version: 1.1.8-20260429
-Date: 2026-04-29 10:48 CEST
+Version: 1.2.0-20260429
+Date: 2026-04-29 11:47 CEST
 Description: Handles file I/O, format detection, Adblock translation, 
              and parallel bulk ingestion of raw list payloads. Strict
              path rejection protects DNS zone integrity.
 
 Update Trail:
+  - 1.2.0 (2026-04-29): Updated IsHNSTLD call routing to utilize shared module.
   - 1.1.8 (2026-04-29): Integrated aggrip-go/shared library to centralize
                         HTTP/file streams and heuristic fast-paths.
-  - 1.1.7 (2026-04-29): Removed dead code execution paths during punycode
-                        translation and domain validation cycles.
-  - 1.1.6 (2026-04-25): Refactored fetchLines to stream payloads directly
-                        via bufio.Scanner instead of allocating massive 
-                        []byte blocks with io.ReadAll. Vastly improves 
-                        memory utilization on enterprise-grade blocklists.
-  - 1.1.5 (2026-04-24): Implemented trailing slash handler for Handshake (HNS) 
-                        domains (e.g. "domain/"). URLs and standard domains 
-                        with paths are strictly rejected natively.
-  - 1.1.4 (2026-04-24): Added explicit block intent parsing. Adblock syntax 
-                        (||) now strictly overrides file-level defaults, 
-                        routing base domains and $denyallow targets 
-                        correctly regardless of the source file type.
-  - 1.1.3 (2026-04-24): Removed forceAllow from parseDomainToken. Token 
-                        parsing is now completely context-agnostic.
-  - 1.1.2 (2026-04-24): Fixed $denyallow modifier logic. Enforces strict 
-                        subdomain validation, ignores contradictory modifiers 
-                        on allowlist rules, and correctly maps extracted 
-                        denyallow targets directly to the allowlist pipeline.
 ==========================================================================
 */
 
@@ -168,24 +150,24 @@ func stripHnsSlash(token string) string {
 	if !strings.Contains(token, "/") {
 		return token
 	}
-	
+
 	// Ensure the slash is exclusively at the very end of the string.
 	// This inherently blocks URLs containing inline paths (e.g., domain.com/ads/)
 	if strings.Index(token, "/") == len(token)-1 {
 		cleanNoSlash := token[:len(token)-1]
-		
+
 		// Normalize to extract the true base domain without Adblock syntax (like ||)
 		norm := normalizeDomain(cleanNoSlash)
 		if norm == "" {
 			return ""
 		}
-		
+
 		parts := strings.Split(norm, ".")
 		tld := parts[len(parts)-1]
-		
+
 		// Strictly enforce that the resolved TLD exists in the Handshake dictionary.
 		// Protects against non-HNS strings mistakenly attempting to pass a trailing slash.
-		if IsHNSTLD(tld) {
+		if shared.IsHNSTLD(tld) {
 			return cleanNoSlash
 		}
 	}
@@ -265,7 +247,7 @@ func parseDomainToken(token string) parseResult {
 		for _, mod := range strings.Split(modifiers, ",") {
 			mod = strings.TrimSpace(mod)
 			if strings.HasPrefix(mod, "denyallow=") {
-				
+
 				// Logical Collision Check: Discard $denyallow parameters if the base rule is an explicit allowlist rule.
 				if res.IsAllow {
 					logMsg("Warning: Ignored contradictory $denyallow modifier in explicit allowlist rule: '%s'", origToken)
@@ -275,7 +257,7 @@ func parseDomainToken(token string) parseResult {
 				targets := strings.Split(mod[10:], "|")
 				for _, da := range targets {
 					da = strings.TrimSpace(da) // Safe measure to prevent bound issues
-					
+
 					// Check for Handshake trailing slashes explicitly
 					if strings.Contains(da, "/") {
 						da = stripHnsSlash(da)
@@ -342,11 +324,11 @@ func fetchLines(source string) ([]string, error) {
 
 	// Pre-allocate the dynamic string slice to dramatically cut resizing overhead
 	lines := make([]string, 0, 100000)
-	
+
 	for scanner.Scan() {
 		lines = append(lines, scanner.Text())
 	}
-	
+
 	return lines, scanner.Err()
 }
 
@@ -371,7 +353,7 @@ func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 		h.Write([]byte(source))
 		hashStr := fmt.Sprintf("%x", h.Sum(nil))[:16]
 		rawPath := filepath.Join(workDir, hashStr+".raw")
-		
+
 		f, err := os.Create(rawPath)
 		if err == nil {
 			f.WriteString(fmt.Sprintf("# Type: %s | Source: %s\n", listType, source))
@@ -404,10 +386,10 @@ func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 				logMsg("Warning: Ignored $denyallow targets %v from allowlist rule '%s' (redundant).", parsed.DenyAllow, rawToken)
 			} else {
 				logMsg("Ingestion: Extracted validated $denyallow domain(s) %v from block rule '%s'. Adding to allowlist.", parsed.DenyAllow, rawToken)
-				
+
 				// $denyallow domains extracted strictly from a blocklist rule act as explicit allowlist overrides.
 				result.Allows = append(result.Allows, parsed.DenyAllow...)
-				
+
 				for puny, orig := range parsed.DenyAllowUnicodeMap {
 					result.Conversions = append(result.Conversions, fmt.Sprintf("# %s - Converted from Unicode: %s", puny, orig))
 				}
@@ -444,7 +426,7 @@ func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 			parts := strings.SplitN(line, ",", 2)
 			if len(parts) > 1 {
 				rawDom := strings.TrimSpace(parts[1])
-				
+
 				// Handle Handshake trailing slash exceptions natively
 				if strings.Contains(rawDom, "/") {
 					rawDom = stripHnsSlash(rawDom)

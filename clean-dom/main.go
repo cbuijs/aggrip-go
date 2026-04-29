@@ -1,35 +1,14 @@
 /*
 ==========================================================================
 Filename: clean-dom/main.go
-Version: 1.1.9-20260429
-Date: 2026-04-29 10:48 CEST
+Version: 1.2.1-20260429
+Date: 2026-04-29 11:52 CEST
 Update Trail:
-  - 1.1.9 (2026-04-29): Refactored to utilize centralized shared library (aggrip-go/shared).
-  - 1.1.8 (2026-04-29): Explicitly registered --help and -h flags for 
-                        strict standardization. Removed dead code loops.
-  - 1.1.7 (2026-04-25): Implemented optionalIntFlag to support optional 
-                        numeric values for boolean flags. Added the 
-                        --compress-hosts parameter for HOSTS formatting.
-  - 1.1.6 (2026-04-25): Synchronized version with parser stream optimization.
-  - 1.1.5 (2026-04-24): Synchronized version with parser/validator HNS 
-                        trailing slash support.
-  - 1.1.4 (2026-04-24): Version sync with parser.go block intent updates.
-  - 1.1.3 (2026-04-24): Dropped forceAllow parameter from processing pipeline. 
-                        Relying on native file-type mapping.
-  - 1.1.2 (2026-04-24): Synchronized with parser.go $denyallow fixes.
-  - 1.1.1 (2026-04-24): Added strict Adblock domain parsing (rejects paths),
-                        dynamic format switching from mixed to adblock, and
-                        explicit $denyallow extraction logging.
-  - 1.1.0 (2026-04-24): Introduced --valid-tlds parameter with embedded 
-                        IANA and OpenNIC dictionaries. Unifed validation 
-                        logic for robust, noise-free output logs.
-  - 1.0.9 (2026-04-24): Refactored massive monolith into main.go, parser.go, 
-                        formatter.go, and validator.go for enterprise maintainability.
-  - 1.0.8 (2026-04-24): Implemented isPlausibleDomain pre-ingestion check.
-  - 1.0.7 (2026-04-24): Deferred structural validation to output phase.
-  - 1.0.6 (2026-04-24): Added --allow-tld parameter.
-  - 1.0.5 (2026-04-24): Stripped regexp for native byte-level parsing.
-  - 1.0.0 (2026-04-22): Initial Go port.
+  - 1.2.1 (2026-04-29): Centralized suite versioning to shared/version.go.
+  - 1.2.0 (2026-04-29): Synced version across aggrip-go tools. Migrated TLD
+                        init validation arrays to shared namespace logic.
+                        Utilized shared.OptionalIntFlag for flag standardization.
+  - 1.1.9 (2026-04-29): Refactored to utilize centralized shared library.
 Description: Enterprise-grade DNS blocklist optimizer. Features upfront 
              file format detection, concurrent bulk ingestion, punycode 
              translation, dynamic adblock routing, and O(N log N) tree 
@@ -44,56 +23,10 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strconv"
 	"sync"
 
 	"aggrip-go/shared"
 )
-
-// optionalIntFlag implements a custom flag construct allowing a parameter
-// to act as both a boolean toggle and an integer receiver cleanly.
-// This natively supports syntax like --flag and --flag=5.
-type optionalIntFlag struct {
-	Value  int
-	Active bool
-}
-
-// String fulfills the flag.Value interface returning the string representation.
-func (i *optionalIntFlag) String() string {
-	if !i.Active {
-		return "0"
-	}
-	return strconv.Itoa(i.Value)
-}
-
-// Set fulfills the flag.Value interface, parsing the assigned string payload safely.
-func (i *optionalIntFlag) Set(s string) error {
-	i.Active = true
-	// "true" is natively passed by the flag package if the argument lacks an equal sign
-	if s == "true" {
-		i.Value = 10 // Enterprise default routing specification
-		return nil
-	}
-	if s == "false" {
-		i.Active = false
-		return nil
-	}
-	val, err := strconv.Atoi(s)
-	if err != nil {
-		return fmt.Errorf("invalid integer format: %v", err)
-	}
-	if val < 1 {
-		return fmt.Errorf("value must be >= 1")
-	}
-	i.Value = val
-	return nil
-}
-
-// IsBoolFlag signals the internal Go flag package that this construct
-// natively allows omitted values without triggering parse failures.
-func (i *optionalIntFlag) IsBoolFlag() bool {
-	return true
-}
 
 // Global Flags defining core operations and behaviors across all files in main package
 var (
@@ -112,7 +45,7 @@ var (
 	suppressComments bool
 	lessStrict       bool
 	allowTLD         bool
-	compressHosts    optionalIntFlag
+	compressHosts    shared.OptionalIntFlag
 	verbose          bool
 	showVersion      bool
 	helpFlag         bool
@@ -136,27 +69,27 @@ func init() {
 	flag.StringVar(&outputFmt, "o", "domain", "Short for --output-format")
 
 	flag.StringVar(&allDir, "all-dir", "", "Mandatory output directory to use when output is set to 'all'")
-	
+
 	flag.StringVar(&workDir, "work-dir", "", "Directory to save unmodified raw source files")
 	flag.StringVar(&workDir, "w", "", "Short for --work-dir")
 
 	flag.StringVar(&sortAlgo, "sort", "domain", "Sorting algorithm: domain, alphabetically, tld")
-	
+
 	flag.StringVar(&outBlocklist, "out-blocklist", "", "File path to write the blocklist output (default: STDOUT)")
 	flag.StringVar(&outAllowlist, "out-allowlist", "", "File path to write the allowlist output")
 
 	flag.StringVar(&validTlds, "valid-tlds", "iana", "Comma-separated list of allowed TLD registries: iana (default), opennic, hns, all, disable")
-	
+
 	flag.BoolVar(&optimizeAllow, "optimize-allowlist", false, "Drop unused allowlist entries")
 	flag.BoolVar(&suppressComments, "suppress-comments", false, "Suppress audit log of removed domains")
-	
+
 	flag.BoolVar(&lessStrict, "less-strict", false, "Allow underscores (_) and asterisks (*) in domain names")
 	flag.BoolVar(&lessStrict, "l", false, "Short for --less-strict")
-	
+
 	flag.BoolVar(&allowTLD, "allow-tld", false, "Allow Top-Level Domains (TLDs) like 'com' or 'net'")
-	
+
 	flag.Var(&compressHosts, "compress-hosts", "Compress HOSTS format output (default 10 domains per IP when flag is present)")
-	
+
 	flag.BoolVar(&verbose, "verbose", false, "Show progress and statistics on STDERR")
 	flag.BoolVar(&verbose, "v", false, "Short for --verbose")
 
@@ -210,9 +143,9 @@ func main() {
 		os.Exit(0)
 	}
 
+	// Trap version flag and output the globally synchronized suite version dynamically
 	if showVersion {
-		fmt.Println("clean-dom Go Edition - Version 1.1.9-20260429")
-		os.Exit(0)
+		shared.PrintVersion("clean-dom")
 	}
 
 	if len(blocklists) == 0 {
@@ -222,8 +155,8 @@ func main() {
 		log.Fatal("Error: --all-dir is required when using -o all.")
 	}
 
-	// Initialize the TLD Validation Dictionaries securely upfront
-	InitTLDValidator(validTlds)
+	// Initialize the TLD Validation Dictionaries securely upfront in shared memory
+	shared.InitTLDValidator(validTlds, verbose)
 
 	if workDir != "" {
 		os.MkdirAll(workDir, 0755)

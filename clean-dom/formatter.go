@@ -1,35 +1,16 @@
 /*
 ==========================================================================
 Filename: clean-dom/formatter.go
-Version: 1.1.12-20260429
-Date: 2026-04-29 10:48 CEST
+Version: 1.2.0-20260429
+Date: 2026-04-29 11:47 CEST
 Description: Handles deduplication, formatting, layout mapping, output 
              generation, comment injection, and disk writing operations.
 
 Update Trail:
+  - 1.2.0 (2026-04-29): Standardized calls to central shared validation libraries.
   - 1.1.12 (2026-04-29): Refactored sorting to utilize `aggrip-go/shared`
                          centralized ReverseStr helper directly.
-  - 1.1.11 (2026-04-25): Implemented high-speed HOSTS compression routing 
-                         via capacity-bound slice buffers. Natively groups
-                         domains per IP address eliminating output bloat.
-  - 1.1.10 (2026-04-25): Refactored comment generation formats to strictly
-                         align output comments with their target apex domains
-                         regardless of the sort algorithm applied. Stripped
-                         a bug causing standalone allowlist entries to be 
-                         duplicated natively in unified Adblock payloads.
-  - 1.1.9 (2026-04-24): Resolved function redeclaration conflict. Renamed 
-                        extractDomainForSort to extractSortKey natively to 
-                        prevent collision with validator.go.
-  - 1.1.8 (2026-04-24): Enforced unified file priority sequence. Allowlist 
-                        entries are now strictly guaranteed to output before 
-                        blocklist entries across all supporting formats 
-                        (Adblock, RPZ, Dnsmasq, Unbound). Adblock natively 
-                        deduplicates @@|| when $denyallow is active.
-  - 1.1.7 (2026-04-24): Refactored Dnsmasq and Unbound formatting to strictly 
-                        output unified configs. Allowlist entries are mapped 
-                        directly to the top of the generated config payload 
-                        using server=/domain/# and transparent parameters.
-                        Switched Dnsmasq blocks to server=/domain/ natively.
+  - 1.1.11 (2026-04-25): Implemented high-speed HOSTS compression routing.
 ==========================================================================
 */
 
@@ -61,7 +42,7 @@ func buildOutputs(
 	if isTopNPass {
 		passName = "(Top-N)"
 	}
-	
+
 	logMsg("--- Stage 4: Preparing for Deduplication %s ---", passName)
 	logMsg("Sorting %d domains by depth...", len(blockDomains))
 
@@ -73,7 +54,7 @@ func buildOutputs(
 	if outputFmt == "all" {
 		os.MkdirAll(allDir, 0755)
 	}
-	
+
 	logMsg("--- Stage 5: Processing & Optimizing %s ---", passName)
 
 	filteredBlocks := make(map[string]struct{})
@@ -86,7 +67,7 @@ func buildOutputs(
 	for _, domain := range blockDomains {
 		// Validates structural boundaries, strict RFC limits, and embedded TLD dictionaries.
 		// Detailed error strings automatically drive dynamic, noise-free output logs.
-		err := ValidateDomain(domain, lessStrict, allowTLD)
+		err := shared.ValidateDomain(domain, lessStrict, allowTLD)
 		if err != nil {
 			if _, exists := loggedInvalids[domain]; !exists {
 				loggedInvalids[domain] = struct{}{}
@@ -174,7 +155,7 @@ func buildOutputs(
 
 	for allowDom := range allowDomains {
 		// Ensure corrupted allow domains are skipped without polluting the firewall configurations natively.
-		if err := ValidateDomain(allowDom, lessStrict, allowTLD); err != nil {
+		if err := shared.ValidateDomain(allowDom, lessStrict, allowTLD); err != nil {
 			continue
 		}
 
@@ -212,7 +193,7 @@ func buildOutputs(
 		finalAllows = usedAllows
 		for dom := range allowDomains {
 			// We also drop invalid allowlists directly preventing broken config generations
-			if err := ValidateDomain(dom, lessStrict, allowTLD); err != nil {
+			if err := shared.ValidateDomain(dom, lessStrict, allowTLD); err != nil {
 				continue
 			}
 			if _, ok := usedAllows[dom]; !ok {
@@ -224,7 +205,7 @@ func buildOutputs(
 	} else {
 		finalAllows = make(map[string]struct{})
 		for dom := range allowDomains {
-			if err := ValidateDomain(dom, lessStrict, allowTLD); err == nil {
+			if err := shared.ValidateDomain(dom, lessStrict, allowTLD); err == nil {
 				finalAllows[dom] = struct{}{}
 			}
 		}
@@ -412,13 +393,13 @@ func buildOutputs(
 					outputItems = append(outputItems, removedLogDedup...)
 					outputItems = append(outputItems, removedLogParentBlocked...)
 				}
-				
+
 				// Only map unused allows to the blocklist if a separate allowlist file was NOT generated
 				// AND we didn't explicitly route them dynamically to outBlock natively via targetAllow priority.
 				if outAllow == nil && fmtType != "dnsmasq" && fmtType != "unbound" && fmtType != "adblock" && fmtType != "rpz" {
 					outputItems = append(outputItems, removedLogUnusedAllows...)
 				}
-				
+
 				// Add conversions natively preserving original state comments
 				for _, conv := range conversionLog {
 					// Cleanly strip the prefix to avoid slice bound issues
@@ -457,7 +438,7 @@ func buildOutputs(
 				if cmpI == cmpJ {
 					isCommentI := strings.HasPrefix(outputItems[i], "#")
 					isCommentJ := strings.HasPrefix(outputItems[j], "#")
-					
+
 					// Route comments safely above their functional domain node natively
 					if isCommentI != isCommentJ {
 						return isCommentI
@@ -573,7 +554,7 @@ func buildOutputs(
 func validAllowDomainsCounter(allowDomains map[string]struct{}, lessStrict bool, allowTLD bool) map[string]struct{} {
 	valid := make(map[string]struct{})
 	for dom := range allowDomains {
-		if err := ValidateDomain(dom, lessStrict, allowTLD); err == nil {
+		if err := shared.ValidateDomain(dom, lessStrict, allowTLD); err == nil {
 			valid[dom] = struct{}{}
 		}
 	}

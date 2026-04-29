@@ -1,21 +1,12 @@
 /*
 ==========================================================================
 Filename: aggrip/main.go
-Version: v0.22-20260429
-Date: 2026-04-29 10:48 CEST
+Version: v1.2.1-20260429
+Date: 2026-04-29 11:52 CEST
 Update Trail:
-  - v0.22-20260429: Refactored to utilize centralized shared library (aggrip-go/shared).
-  - v0.20-20260429: Standardized explicit --help/-h flag mappings. Audited
-                    for regressions and dead code execution paths.
-  - v0.19-20260423: Standardized CLI parameters across all tools. Adopted 
-                    -v for verbose, -V for version, and -h for help.
-  - v0.18-20260423: Standardized CLI parameters. Implemented double-dash
-                    for long flags and single-dash for short flags. Added
-                    customized flag.Usage output to expose all options clearly.
-  - v0.17-20260423: Added command-line flags (-i, -o, -s, -v) to extend 
-                    usability beyond standard UNIX pipes.
-  - v0.16-20260423: Initial Go translation from aggrip.py. Implemented 
-                    high-speed slice-based CIDR aggregation via net/netip.
+  - v1.2.1 (2026-04-29): Centralized suite versioning to shared/version.go.
+  - v1.2.0 (2026-04-29): Synced suite version up to 1.2.0. Standardized CLI 
+                         execution matrix documentation directly.
 Description: High-performance Go utility to aggregate IPs into a CIDR list.
              Reads a raw list of IP addresses and CIDR blocks and outputs 
              a merged, optimized CIDR list.
@@ -100,10 +91,9 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Handle version output and exit early if requested.
+	// Trap version flag and output the globally synchronized suite version dynamically
 	if showVersion {
-		fmt.Println("aggrip Go Edition - Version v0.22-20260429")
-		os.Exit(0)
+		shared.PrintVersion("aggrip")
 	}
 
 	// --- Stage 1: Stream Configuration ---
@@ -247,7 +237,7 @@ func parsePrefix(s string, strict bool) (netip.Prefix, error) {
 		if err != nil || bits < 0 || bits > addr.BitLen() {
 			return netip.Prefix{}, fmt.Errorf("invalid prefix length constraint")
 		}
-		
+
 		// Re-assemble and apply Masked() to truncate any dirty host bits left over.
 		return netip.PrefixFrom(addr, bits).Masked(), nil
 	}
@@ -257,7 +247,7 @@ func parsePrefix(s string, strict bool) (netip.Prefix, error) {
 	if errAddr != nil {
 		return netip.Prefix{}, errAddr
 	}
-	
+
 	// Create a precise host-route prefix.
 	return netip.PrefixFrom(addr, addr.BitLen()).Masked(), nil
 }
@@ -278,7 +268,7 @@ func mergePrefixes(prefixes []netip.Prefix) []netip.Prefix {
 		if cmp := a.Addr().Compare(b.Addr()); cmp != 0 {
 			return cmp
 		}
-		
+
 		// Sort largest subnet (smallest mask) first if base IPs are completely identical
 		if a.Bits() < b.Bits() {
 			return -1
@@ -311,7 +301,7 @@ func mergePrefixes(prefixes []netip.Prefix) []netip.Prefix {
 			if top.Bits() == p.Bits() && top.Bits() > 0 {
 				// We project/calculate what their shared mathematical Supernet would be.
 				super := netip.PrefixFrom(top.Addr(), top.Bits()-1).Masked()
-				
+
 				// If `top` sits at the exact start of the Supernet, AND the Supernet 
 				// fully covers `p`'s starting address, they are perfect binary siblings.
 				if super.Addr() == top.Addr() && super.Contains(p.Addr()) {
