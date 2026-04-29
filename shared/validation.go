@@ -1,8 +1,10 @@
 // ==========================================================================
 // Filename: shared/validation.go
-// Version: 1.2.0-20260429
-// Date: 2026-04-29 11:47 CEST
+// Version: 1.2.3-20260429
+// Date: 2026-04-29 12:26 CEST
 // Update Trail:
+//   - 1.2.3-20260429: Added missing shared.IsFastIP function for standardized
+//                     high-performance IP validation across the tool suite.
 //   - 1.2.0-20260429: Migrated TLD dictionaries and structural validation from 
 //                     clean-dom/validator.go to centralize DNS rule enforcement.
 // Description: Centralized high-performance heuristics and validation utilities.
@@ -188,6 +190,13 @@ func ValidateDomain(domain string, lessStrict bool, allowTLD bool) error {
 	}
 
 	return nil
+}
+
+// IsFastIP runs a fast heuristic check using netip to ensure valid IP structures
+// (IPv4/IPv6). It bypasses regular expressions for high-performance memory-safe 
+// execution natively. Acts as a standard alias to IsFastIPStrict.
+func IsFastIP(token string) bool {
+	return IsFastIPStrict(token)
 }
 
 // IsFastIPStrict runs a strict heuristic check using netip to ensure 

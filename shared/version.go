@@ -1,8 +1,9 @@
 // ==========================================================================
 // Filename: shared/version.go
-// Version: 1.2.2-20260429
-// Date: 2026-04-29 12:22 CEST
+// Version: 1.2.3-20260429
+// Date: 2026-04-29 12:26 CEST
 // Update Trail:
+//   - 1.2.3-20260429: Added missing shared.IsFastIP function. Standardized.
 //   - 1.2.2-20260429: Version bump. Passed regression checks. Replaced mutex 
 //                     with channel fan-in. Fixed IP mask bit calculation.
 //   - 1.2.1-20260429: Centralized version tracking for the aggrip-go suite.
@@ -19,7 +20,7 @@ import (
 )
 
 // SuiteVersion defines the strictly synchronized global version for all tools natively.
-const SuiteVersion = "1.2.2-20260429"
+const SuiteVersion = "1.2.3-20260429"
 
 // PrintVersion outputs the standardized version string for the requesting tool
 // and securely exits the process to bypass execution natively.
@@ -27,4 +28,3 @@ func PrintVersion(toolName string) {
 	fmt.Printf("%s Go Edition - Version %s\n", toolName, SuiteVersion)
 	os.Exit(0)
 }
-
