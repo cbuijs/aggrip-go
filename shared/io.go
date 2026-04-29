@@ -1,7 +1,7 @@
 // ==========================================================================
 // Filename: shared/io.go
-// Version: 1.0.0
-// Date: 2026-04-29 10:48 CEST
+// Version: 1.8.0-20260429
+// Date: 2026-04-29 15:00 CEST
 // Description: Centralized file and HTTP streaming utilities maximizing
 //              I/O throughput for massive enterprise datasets.
 // ==========================================================================

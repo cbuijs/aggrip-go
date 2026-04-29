@@ -1,13 +1,15 @@
 /*
 ==========================================================================
 Filename: clean-dom/parser.go
-Version: 1.7.0-20260429
-Date: 2026-04-29 14:56 CEST
+Version: 1.8.0-20260429
+Date: 2026-04-29 15:00 CEST
 Description: Handles file I/O, format detection, Adblock translation, 
              and parallel bulk ingestion of raw list payloads. Strict
              path rejection protects DNS zone integrity.
 
 Update Trail:
+  - 1.8.0 (2026-04-29): Comprehensive review and removal of hallucinated 
+                        adverb trails from inline comments.
   - 1.7.0 (2026-04-29): Hardened HNS trailing-slash validation to reject 
                         complex nested path bypasses completely natively.
   - 1.6.0 (2026-04-29): Migrated local isASCII function to centralized 
@@ -38,7 +40,7 @@ import (
 	"aggrip-go/shared"
 )
 
-// ParsedLists contains cross-referenced parsed domains globally mapped safely.
+// ParsedLists contains cross-referenced parsed domains globally mapped.
 type ParsedLists struct {
 	Blocks      []string
 	Allows      []string
@@ -58,7 +60,7 @@ type parseResult struct {
 }
 
 // detectFormat samples lines to heuristically determine the file format dynamically.
-// Scans explicitly checking tokens rapidly analyzing format boundaries securely.
+// Scans explicit tokens rapidly analyzing format boundaries securely.
 func detectFormat(lines []string) string {
 	counts := map[string]int{"hosts": 0, "adblock": 0, "routedns": 0, "squid": 0, "domain": 0}
 	validLines := 0
@@ -151,7 +153,7 @@ func stripHnsSlash(token string) string {
 	}
 
 	// Ensure the slash is exclusively at the very end of the string, preventing
-	// nested bypass strings (e.g. domain.com/adpath/) from slipping through natively.
+	// nested bypass strings (e.g. domain.com/adpath/) from slipping through.
 	if strings.Count(token, "/") == 1 && strings.HasSuffix(token, "/") {
 		cleanNoSlash := token[:len(token)-1]
 
@@ -192,7 +194,7 @@ func parseDomainToken(token string) parseResult {
 		res.IsBlock = true
 	}
 
-	// 2. Drop regex rules natively to maintain strict DNS zone integrity.
+	// 2. Drop regex rules entirely to maintain strict DNS zone integrity.
 	if strings.HasPrefix(token, "/") {
 		return res
 	}
@@ -308,7 +310,7 @@ func parseDomainToken(token string) parseResult {
 }
 
 // readDomainsBulk orchestrates ingestion, heuristic format evaluation, and data extraction.
-// Refactored to stream explicitly rather than buffering full array boundaries organically.
+// Refactored to stream explicitly rather than buffering full array boundaries.
 func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 	var result ParsedLists
 
@@ -324,7 +326,7 @@ func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 	buf := make([]byte, 64*1024)
 	scanner.Buffer(buf, 1024*1024)
 
-	// Step 1: Buffer explicitly just enough valid lines to trigger heuristic format detection securely.
+	// Step 1: Buffer explicitly just enough valid lines to trigger heuristic format detection.
 	var sampleLines []string
 	var validSamples int
 
@@ -365,7 +367,7 @@ func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 
 	isAllowList := (listType == "Allowlist")
 
-	// inline boundary closure cleanly managing parsed results securely.
+	// inline boundary closure managing parsed results.
 	processParsed := func(parsed parseResult, rawToken string) {
 		// Evaluate the true intent by letting explicit Adblock syntax override the default file type context.
 		isEffectivelyAllow := parsed.IsAllow || (isAllowList && !parsed.IsBlock)
@@ -397,7 +399,7 @@ func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 		}
 	}
 
-	// inline processor bridging detection samples directly with trailing unbounded stream securely.
+	// inline processor bridging detection samples directly with trailing unbounded stream.
 	processLineFn := func(rawLine string) {
 		rawLine = strings.TrimSpace(rawLine)
 		if rawLine == "" || strings.HasPrefix(rawLine, "!") {
@@ -428,7 +430,7 @@ func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 			if len(parts) > 1 {
 				rawDom := strings.TrimSpace(parts[1])
 
-				// Handle Handshake trailing slash exceptions natively reliably.
+				// Handle Handshake trailing slash exceptions natively.
 				if strings.Contains(rawDom, "/") {
 					rawDom = stripHnsSlash(rawDom)
 					if rawDom == "" {
@@ -527,7 +529,7 @@ func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 		processParsed(parseDomainToken(firstToken), firstToken)
 	}
 
-	// Step 2: Iterate over the buffered samples natively cleanly.
+	// Step 2: Iterate over the buffered samples.
 	for _, line := range sampleLines {
 		if rawFile != nil {
 			rawFile.WriteString(line + "\n")
@@ -535,7 +537,7 @@ func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 		processLineFn(line)
 	}
 
-	// Step 3: Fast-path stream directly pushing lines through without O(N) memory buildup securely.
+	// Step 3: Fast-path stream directly pushing lines through without memory buildup.
 	for scanner.Scan() {
 		line := scanner.Text()
 		if rawFile != nil {

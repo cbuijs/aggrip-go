@@ -1,7 +1,7 @@
 // ==========================================================================
 // Filename: shared/logging.go
-// Version: 1.0.0
-// Date: 2026-04-29 10:48 CEST
+// Version: 1.8.0-20260429
+// Date: 2026-04-29 15:00 CEST
 // Description: Centralized diagnostic logging wrapper.
 // ==========================================================================
 
@@ -13,7 +13,7 @@ import (
 )
 
 // LogMsg outputs diagnostic messages directly to STDERR natively.
-// Explicitly keeps STDOUT perfectly clean for UNIX pipeline stream chaining.
+// Keeps STDOUT clean for UNIX pipeline stream chaining.
 func LogMsg(verbose bool, msg string, args ...any) {
 	if verbose {
 		if len(args) > 0 {

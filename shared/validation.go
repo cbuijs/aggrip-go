@@ -1,12 +1,13 @@
 // ==========================================================================
 // Filename: shared/validation.go
-// Version: 1.2.3-20260429
-// Date: 2026-04-29 12:26 CEST
+// Version: 1.8.0-20260429
+// Date: 2026-04-29 15:00 CEST
 // Update Trail:
-//   - 1.2.3-20260429: Added missing shared.IsFastIP function for standardized
-//                     high-performance IP validation across the tool suite.
-//   - 1.2.0-20260429: Migrated TLD dictionaries and structural validation from 
-//                     clean-dom/validator.go to centralize DNS rule enforcement.
+//   - 1.8.0 (2026-04-29): Purged AI-hallucinated adverbs from inline documentation.
+//   - 1.2.3 (2026-04-29): Added missing shared.IsFastIP function for standardized
+//                         high-performance IP validation across the tool suite.
+//   - 1.2.0 (2026-04-29): Migrated TLD dictionaries and structural validation from 
+//                         clean-dom/validator.go to centralize DNS rule enforcement.
 // Description: Centralized high-performance heuristics and validation utilities.
 //              Embeds zero-dependency dictionaries for offline validation.
 // ==========================================================================
@@ -55,15 +56,14 @@ func InitTLDValidator(config string, verbose bool) {
 
 	cfg := strings.ToLower(config)
 
-	// Keep track if HNS is conceptually authorized by the config (via explicit inclusion or disabled limits)
+	// Keep track if HNS is authorized by the config
 	if strings.Contains(cfg, "hns") || strings.Contains(cfg, "all") || strings.Contains(cfg, "disable") {
 		hnsAllowed = true
 	} else {
 		hnsAllowed = false
 	}
 
-	// If disabled or all is specified, we strictly fallback to alphanumeric 
-	// RFC structural checks instead of performing dictionary matching natively.
+	// If disabled or all is specified, fallback to alphanumeric RFC structural checks
 	if strings.Contains(cfg, "disable") || strings.Contains(cfg, "all") {
 		tldCheckEnabled = false
 		LogMsg(verbose, "TLD Dictionary Validation: DISABLED (Fallback to Strict Structural Validation)")
@@ -102,8 +102,8 @@ func InitTLDValidator(config string, verbose bool) {
 	}
 }
 
-// IsHNSTLD safely checks if a given TLD natively exists within the Handshake registry.
-// Strictly guards validations to ensure the user config technically allowed HNS parsing.
+// IsHNSTLD safely checks if a given TLD exists within the Handshake registry.
+// Guards validations to ensure the user config allowed HNS parsing.
 func IsHNSTLD(tld string) bool {
 	if !hnsAllowed {
 		return false
@@ -193,14 +193,12 @@ func ValidateDomain(domain string, lessStrict bool, allowTLD bool) error {
 }
 
 // IsFastIP runs a fast heuristic check using netip to ensure valid IP structures
-// (IPv4/IPv6). It bypasses regular expressions for high-performance memory-safe 
-// execution natively. Acts as a standard alias to IsFastIPStrict.
+// (IPv4/IPv6). It bypasses regular expressions for high-performance memory-safe execution.
 func IsFastIP(token string) bool {
 	return IsFastIPStrict(token)
 }
 
-// IsFastIPStrict runs a strict heuristic check using netip to ensure 
-// valid IP structures (IPv4/IPv6). Used inherently by clean-dom.
+// IsFastIPStrict runs a strict heuristic check using netip to ensure valid IP structures.
 func IsFastIPStrict(token string) bool {
 	if len(token) == 0 {
 		return false
@@ -238,7 +236,7 @@ func IsPlausibleDomain(domain string) bool {
 	return true
 }
 
-// IsValidDomain performs high-speed byte-level validation without regex overhead cleanly.
+// IsValidDomain performs high-speed byte-level validation cleanly.
 // Strictly restricts payloads to alphanumeric, hyphens, and periods.
 func IsValidDomain(b []byte, lessStrict bool) bool {
 	for i := 0; i < len(b); i++ {

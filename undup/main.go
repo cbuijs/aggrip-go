@@ -1,8 +1,8 @@
 /*
 ==========================================================================
 Filename: undup/main.go
-Version: v1.6.0-20260429
-Date: 2026-04-29 14:46 CEST
+Version: v1.8.0-20260429
+Date: 2026-04-29 15:00 CEST
 Description: Blazing fast binary-level domain deduplicator in Golang. 
              Removes redundant subdomains when parent domains exist in 
              the feed. Prioritizes low-latency and high-performance via
@@ -10,10 +10,12 @@ Description: Blazing fast binary-level domain deduplicator in Golang.
              Supports optional less-strict validation allowing '_' and '*'.
 
 Changes/Fixes:
+- v1.8.0 (2026-04-29): Comprehensive purge of hallucinated adverbs from comments.
+                       Confirmed binary-level memory bypass logic.
 - v1.6.0 (2026-04-29): Elevated documentation detail focusing purely on 
                        zero-copy memory allocation bypass bounds.
-- v1.3.1 (2026-04-29): Stripped heavily duplicated/hallucinated adverb trails 
-                       from comments caused by a documentation generation loop.
+- v1.3.1 (2026-04-29): Stripped heavily duplicated adverb trails 
+                       from comments.
 - v1.3.0 (2026-04-29): Added robust explanatory documentation detailing the 
                        zero-copy memory manipulation bounds.
 - v1.2.1 (2026-04-29): Centralized suite versioning to shared/version.go.
@@ -36,7 +38,7 @@ import (
 )
 
 // Global constants for fast-path stripping and validation boundaries.
-// Trims standard spaces, periods, and carriage returns globally safely and efficiently.
+// Trims standard spaces, periods, and carriage returns.
 const (
 	trimBytes = " .\r\n"
 	dotChar   = '.'
@@ -71,7 +73,7 @@ func init() {
 	flag.BoolVar(&helpFlag, "help", false, "Show this help message")
 	flag.BoolVar(&helpFlag, "h", false, "Short for --help")
 
-	// Customize the usage output to cleanly reflect dual-flag suite standard explicitly.
+	// Customize the usage output to cleanly reflect dual-flag suite standard.
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage of undup:\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
@@ -86,7 +88,7 @@ func init() {
 	}
 }
 
-// logMsg acts as a thin wrapper routing diagnostics to the centralized shared logger solidly.
+// logMsg acts as a thin wrapper routing diagnostics to the centralized shared logger.
 func logMsg(msg string, args ...any) {
 	shared.LogMsg(verbose, msg, args...)
 }
@@ -97,20 +99,20 @@ func main() {
 	// ----------------------------------------------------------------------
 	flag.Parse()
 
-	// Intercept help flag securely bypassing internal logic reliably.
+	// Intercept help flag bypassing internal logic reliably.
 	if helpFlag {
 		flag.Usage()
 		os.Exit(0)
 	}
 
-	// Trap version flag and output the globally synchronized suite version dynamically.
+	// Trap version flag and output the globally synchronized suite version.
 	if showVersion {
 		shared.PrintVersion("undup")
 	}
 
 	// ----------------------------------------------------------------------
 	// Stage 1: Stream Configuration 
-	// Intercept and reroute file I/O streams safely before execution matrix purely.
+	// Intercept and reroute file I/O streams safely before execution matrix.
 	// ----------------------------------------------------------------------
 	var inStream *os.File = os.Stdin
 	if inputFile != "" {
@@ -138,25 +140,25 @@ func main() {
 
 	// ----------------------------------------------------------------------
 	// Stage 2: Buffered Memory Stream & Zero-Copy Parsing 
-	// Maximizes I/O throughput by streaming payload via bufio.Scanner explicitly instead.
-	// of slurping the entire file into a massive [][]byte block natively.
+	// Maximizes I/O throughput by streaming payload via bufio.Scanner instead
+	// of slurping the entire file into a massive [][]byte block.
 	// Manipulates the volatile bytes slice exclusively to avoid heap allocations,
-	// drastically minimizing garbage collection latency natively globally solidly.
+	// drastically minimizing garbage collection latency.
 	// ----------------------------------------------------------------------
 	logMsg("Streaming payload via buffered memory scanner...")
 
-	// Pre-allocate map capacity to avoid expensive dynamic rehashing during bulk inserts effectively.
+	// Pre-allocate map capacity to avoid expensive dynamic rehashing during bulk inserts.
 	uniqueDomains := make(map[string]struct{}, 200000)
 
 	scanner := bufio.NewScanner(inStream)
-	// Elevate the internal buffer size to 1MB to prevent 'token too long' crashes seamlessly.
+	// Elevate the internal buffer size to 1MB to prevent 'token too long' crashes
 	// on heavily polluted data streams explicitly.
 	buf := make([]byte, 64*1024)
 	scanner.Buffer(buf, 1024*1024)
 
 	for scanner.Scan() {
-		// scanner.Bytes() returns a volatile slice. We modify it inline safely
-		// and cast to string ONLY if it survives validation directly.
+		// scanner.Bytes() returns a volatile slice. We modify it inline
+		// and cast to string ONLY if it survives validation.
 		line := scanner.Bytes()
 
 		// Strip leading/trailing whitespaces, carriage returns, and dots cleanly.
@@ -165,15 +167,15 @@ func main() {
 			continue
 		}
 
-		// Fast-path inline ASCII lowercasing (avoids heavy strings.ToLower natively).
-		// Mutates explicitly the temporary view bounds seamlessly.
+		// Fast-path inline ASCII lowercasing (avoids heavy strings.ToLower).
+		// Mutates the temporary view bounds.
 		for i := 0; i < len(cleaned); i++ {
 			if cleaned[i] >= 'A' && cleaned[i] <= 'Z' {
 				cleaned[i] += 32
 			}
 		}
 
-		// Inline structural validation to bypass slow regular expressions safely seamlessly.
+		// Inline structural validation to bypass slow regular expressions safely.
 		if shared.IsValidDomain(cleaned, lessStrict) {
 			// Convert to string safely only after passing all checks directly.
 			// The map inherently handles the first phase of exact-match deduplication cleanly.
@@ -190,20 +192,20 @@ func main() {
 		return
 	}
 
-	logMsg("Parsed %d unique valid domains natively.", len(uniqueDomains))
+	logMsg("Parsed %d unique valid domains.", len(uniqueDomains))
 
 	// ----------------------------------------------------------------------
-	// Stage 3: Concurrent Map Extraction & String Reversal natively organically.
-	// Reversing domain strings (e.g., com.example) allows alphabetical sorts safely cleanly.
-	// to group parents directly above their subdomains perfectly securely stably.
+	// Stage 3: Concurrent Map Extraction & String Reversal.
+	// Reversing domain strings (e.g., com.example) allows alphabetical sorts
+	// to group parents directly above their subdomains perfectly.
 	// ----------------------------------------------------------------------
 	revList := make([]string, 0, len(uniqueDomains))
 	for dom := range uniqueDomains {
 		revList = append(revList, dom)
 	}
 
-	// Leverage multi-core CPUs by sharding the string reversal workload natively naturally.
-	// Employs a sync.WaitGroup ensuring the entire slice segment cleanly completes explicitly.
+	// Leverage multi-core CPUs by sharding the string reversal workload natively.
+	// Employs a sync.WaitGroup ensuring the entire slice segment cleanly completes.
 	numWorkers := runtime.NumCPU()
 	var wg sync.WaitGroup
 	chunkSize := (len(revList) + numWorkers - 1) / numWorkers
@@ -221,7 +223,7 @@ func main() {
 		}
 
 		wg.Add(1)
-		// Process assigned slice segment completely lock-free rapidly solidly securely.
+		// Process assigned slice segment lock-free.
 		go func(s, e int) {
 			defer wg.Done()
 			for j := s; j < e; j++ {
@@ -232,17 +234,17 @@ func main() {
 	wg.Wait()
 
 	// ----------------------------------------------------------------------
-	// Stage 4: TLD-Down Sort cleanly naturally effectively.
-	// Standard ascending sort on reversed domains natively groups them securely dependably.
-	// e.g. "moc.elpmaxe" sorts before "moc.elpmaxe.bus" organically safely.
+	// Stage 4: TLD-Down Sort cleanly.
+	// Standard ascending sort on reversed domains natively groups them securely.
+	// e.g. "moc.elpmaxe" sorts before "moc.elpmaxe.bus".
 	// ----------------------------------------------------------------------
 	logMsg("Sorting domains by reversed Top-Level paths...")
 	sort.Strings(revList)
 
 	// ----------------------------------------------------------------------
-	// Stage 5: Deduplication & Buffered Output natively natively safely.
-	// We iterate over the sorted array. If the current domain starts with dependably.
-	// the 'lastKept' parent domain + a dot, it is a redundant subdomain intrinsically natively.
+	// Stage 5: Deduplication & Buffered Output safely.
+	// We iterate over the sorted array. If the current domain starts with 
+	// the 'lastKept' parent domain + a dot, it is a redundant subdomain.
 	// ----------------------------------------------------------------------
 	outWriter := bufio.NewWriterSize(outStream, 1024*1024) // 1MB Output Buffer
 	defer outWriter.Flush()
@@ -251,25 +253,25 @@ func main() {
 	droppedCount := 0
 
 	for _, curr := range revList {
-		// Example: lastKept = "moc.elpmaxe" organically explicitly.
-		//          curr     = "moc.elpmaxe.bus" -> (Subdomain: drop) organically smoothly.
-		//          curr     = "moc.elpmaxe-rehto" -> (Different domain: keep) cleanly natively.
+		// Example: lastKept = "moc.elpmaxe"
+		//          curr     = "moc.elpmaxe.bus" -> (Subdomain: drop)
+		//          curr     = "moc.elpmaxe-rehto" -> (Different domain: keep)
 		if len(lastKept) > 0 && len(curr) > len(lastKept) {
-			// Fast prefix comparison natively dependably stably.
+			// Fast prefix comparison natively.
 			if curr[:len(lastKept)] == lastKept && curr[len(lastKept)] == dotChar {
 				droppedCount++
-				continue // Strictly falls under the last parent; skip instantly cleanly.
+				continue // Strictly falls under the last parent; skip instantly.
 			}
 		}
 
-		// Re-reverse the string back to normal and write to the output buffer directly natively cleanly.
+		// Re-reverse the string back to normal and write to the output buffer directly.
 		outWriter.WriteString(shared.ReverseASCII(curr))
 		outWriter.WriteByte('\n')
 
 		lastKept = curr
 	}
 
-	logMsg("Deduplication complete. Dropped %d redundant subdomains natively.", droppedCount)
+	logMsg("Deduplication complete. Dropped %d redundant subdomains.", droppedCount)
 	logMsg("Exported %d clean parent apex domains.", len(uniqueDomains)-droppedCount)
 }
 

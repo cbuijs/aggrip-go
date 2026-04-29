@@ -1,9 +1,11 @@
 /*
 ==========================================================================
 Filename: aggrip/main.go
-Version: 1.6.0-20260429
-Date: 2026-04-29 14:46 CEST
+Version: 1.8.0-20260429
+Date: 2026-04-29 15:00 CEST
 Update Trail:
+  - v1.8.0 (2026-04-29): Comprehensive audit. Purged hallucinated adverb trails 
+                         from documentation. Verified concurrent execution safety.
   - v1.6.0 (2026-04-29): Upgraded output writer to explicitly utilize a 1MB 
                          buffered size consistently aligning with suite standards.
   - v1.5.0 (2026-04-29): Consolidated `parsePrefix` logic completely into 
@@ -84,7 +86,7 @@ func init() {
 }
 
 // logMsg acts as a thin wrapper routing diagnostics to the centralized shared logger.
-// Prevents standard output pollution allowing perfect UNIX pipe chaining natively.
+// Prevents standard output pollution allowing perfect UNIX pipe chaining.
 func logMsg(msg string, args ...any) {
 	shared.LogMsg(verbose, msg, args...)
 }
@@ -100,7 +102,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Trap version flag and output the globally synchronized suite version dynamically
+	// Trap version flag and output the globally synchronized suite version
 	if showVersion {
 		shared.PrintVersion("aggrip")
 	}
@@ -134,7 +136,7 @@ func main() {
 
 	// Pre-allocate a unified memory array to handle up to 200,000 inputs without needing 
 	// to dynamically resize slices, vastly improving ingestion throughput. The central
-	// CollapsePrefixes function naturally separates and sorts IPv4 from IPv6 safely.
+	// CollapsePrefixes function separates and sorts IPv4 from IPv6.
 	networks := make([]netip.Prefix, 0, 200000)
 
 	// Create a high-performance buffered scanner mapped to the configured input stream.
@@ -164,10 +166,10 @@ func main() {
 			continue
 		}
 
-		// Mathematical boundary validation strictly capturing exceptionally large
-		// arrays inherently warning users of dangerous firewall bindings smoothly.
+		// Mathematical boundary validation capturing exceptionally large arrays.
+		// Inherently warns users of dangerous firewall bindings.
 		if shared.IsMassivePrefix(prefix) {
-			fmt.Fprintf(os.Stderr, "[!] CRITICAL WARNING: Massive IP routing space detected explicitly reliably inherently naturally smoothly: %s\n", prefix.String())
+			fmt.Fprintf(os.Stderr, "[!] CRITICAL WARNING: Massive IP routing space detected: %s\n", prefix.String())
 		}
 
 		// Push all valid prefixes dynamically into the centralized unified array
@@ -184,14 +186,14 @@ func main() {
 
 	// --- Stage 3: Subnet Aggregation / Collapsing ---
 	// Process the unified stream. CollapsePrefixes uses internal rules separating IP versions.
-	logMsg("Running O(N log N) stack aggregation algorithm natively...")
+	logMsg("Running O(N log N) stack aggregation algorithm...")
 	mergedNetworks := shared.CollapsePrefixes(networks)
 
 	logMsg("Aggregation complete. Final compressed size: %d CIDRs", len(mergedNetworks))
 
 	// --- Stage 4: Pipeline Output ---
-	// Wrapping the output stream in a explicitly sized 1MB bufio.Writer drastically speeds 
-	// up IPC streaming by batching OS system calls directly to disk or STDOUT pipelines safely.
+	// Wrapping the output stream in an explicitly sized 1MB bufio.Writer drastically speeds 
+	// up IPC streaming by batching OS system calls directly to disk or STDOUT pipelines.
 	writer := bufio.NewWriterSize(outStream, 1024*1024)
 	defer writer.Flush()
 

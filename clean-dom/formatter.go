@@ -1,12 +1,14 @@
 /*
 ==========================================================================
 Filename: clean-dom/formatter.go
-Version: 1.6.0-20260429
-Date: 2026-04-29 14:46 CEST
+Version: 1.8.0-20260429
+Date: 2026-04-29 15:00 CEST
 Description: Handles deduplication, formatting, layout mapping, output 
              generation, comment injection, and disk writing operations.
 
 Update Trail:
+  - 1.8.0 (2026-04-29): Purged AI-hallucinated adverb trails from documentation 
+                        to maintain enterprise code quality and clarity.
   - 1.6.0 (2026-04-29): Replaced local getParents with centralized shared.GetDomainParents.
   - 1.3.0 (2026-04-29): Added heavy verbose commentary natively mapping explicitly
                         detailed algorithms strictly aligning documentation.
@@ -31,8 +33,8 @@ import (
 	"aggrip-go/shared"
 )
 
-// buildOutputs executes deduplication, formatting, comment mapping, and generates target files natively.
-// Extensively coordinates parent-subdomain relationship structures logically routing constraints securely.
+// buildOutputs executes deduplication, formatting, comment mapping, and generates target files.
+// Coordinates parent-subdomain relationship structures logically.
 func buildOutputs(
 	blockDomains []string,
 	allowDomains map[string]struct{},
@@ -50,8 +52,8 @@ func buildOutputs(
 	logMsg("--- Stage 4: Preparing for Deduplication %s ---", passName)
 	logMsg("Sorting %d domains by depth...", len(blockDomains))
 
-	// Sort blockDomains by depth (dot count) descending to properly sequence subdomains strictly securely.
-	// Pushing deeply nested arrays to the top enables single-pass parent coverage matrices cleanly natively.
+	// Sort blockDomains by depth (dot count) descending to properly sequence subdomains.
+	// Pushing deeply nested arrays to the top enables single-pass parent coverage matrices.
 	sort.Slice(blockDomains, func(i, j int) bool {
 		return strings.Count(blockDomains[i], ".") < strings.Count(blockDomains[j], ".")
 	})
@@ -70,14 +72,14 @@ func buildOutputs(
 	statsAllowlisted, statsTopN, statsDeduped, statsInvalidStruct := 0, 0, 0, 0
 
 	for _, domain := range blockDomains {
-		// Validates structural boundaries, strict RFC limits, and embedded TLD dictionaries natively.
-		// Detailed error strings automatically drive dynamic, noise-free output logs explicitly mapping natively.
+		// Validates structural boundaries, strict RFC limits, and embedded TLD dictionaries.
+		// Detailed error strings automatically drive dynamic, noise-free output logs.
 		err := shared.ValidateDomain(domain, lessStrict, allowTLD)
 		if err != nil {
 			if _, exists := loggedInvalids[domain]; !exists {
 				loggedInvalids[domain] = struct{}{}
 				if !suppressComments {
-					// Format aligned to map the specific domain safely above its apex equivalent natively cleanly.
+					// Format aligned to map the specific domain safely above its apex equivalent.
 					removedLogInvalids = append(removedLogInvalids, fmt.Sprintf("# %s - Removed (Invalid): %v", domain, err))
 				}
 				statsInvalidStruct++
@@ -88,7 +90,7 @@ func buildOutputs(
 		parents := shared.GetDomainParents(domain)
 		allowed := false
 
-		// Explode hierarchy traversing deeply checking explicit exclusions cleanly dynamically.
+		// Explode hierarchy traversing deeply checking explicit exclusions dynamically.
 		if len(allowDomains) > 0 {
 			for _, p := range parents {
 				if _, exists := allowDomains[p]; exists {
@@ -96,7 +98,7 @@ func buildOutputs(
 						usedAllows[p] = struct{}{}
 						allowed = true
 						if !suppressComments {
-							// Formats the comment to explicitly extract and map against the parent/apex node natively
+							// Formats the comment to explicitly extract and map against the parent/apex node.
 							removedLogGeneral = append(removedLogGeneral, fmt.Sprintf("# %s - Allowlisted subdomain removed: %s", p, domain))
 						}
 						statsAllowlisted++
@@ -131,8 +133,8 @@ func buildOutputs(
 
 	logMsg("Executing O(N log N) subdomain deduplication %s...", passName)
 
-	// Invert strings entirely aligning domains strictly allowing lexicographical parent/child bounds.
-	// Reversal maps arrays accurately natively. Example: moc.elpmaxe < moc.elpmaxe.bus
+	// Invert strings entirely aligning domains allowing lexicographical parent/child bounds.
+	// Reversal maps arrays accurately. Example: moc.elpmaxe < moc.elpmaxe.bus
 	revList := make([]string, 0, len(filteredBlocks))
 	for k := range filteredBlocks {
 		revList = append(revList, shared.ReverseStr(k))
@@ -142,12 +144,12 @@ func buildOutputs(
 	finalActive := make(map[string]struct{})
 	lastKept := ""
 
-	// Iterate linearly directly compressing string limits evaluating relationships natively.
+	// Iterate linearly directly compressing string limits evaluating relationships.
 	for _, curr := range revList {
-		// Strict structural parity matching guaranteeing precise collision verification natively.
+		// Strict structural parity matching guaranteeing precise collision verification.
 		if lastKept != "" && strings.HasPrefix(curr, lastKept) && len(curr) > len(lastKept) && curr[len(lastKept)] == '.' {
 			if !suppressComments {
-				// Formats the comment placing the apex natively first for proper alphabetical sequence alignment securely
+				// Formats the comment placing the apex first for proper alphabetical sequence alignment.
 				removedLogDedup = append(removedLogDedup, fmt.Sprintf("# %s - Redundant subdomain removed: %s", shared.ReverseStr(lastKept), shared.ReverseStr(curr)))
 			}
 			statsDeduped++
@@ -164,7 +166,7 @@ func buildOutputs(
 	statsAllowIgnored := 0
 
 	for allowDom := range allowDomains {
-		// Ensure corrupted allow domains are skipped without polluting the firewall configurations natively completely.
+		// Ensure corrupted allow domains are skipped without polluting firewall configurations.
 		if err := shared.ValidateDomain(allowDom, lessStrict, allowTLD); err != nil {
 			continue
 		}
@@ -202,7 +204,7 @@ func buildOutputs(
 	if optimizeAllow {
 		finalAllows = usedAllows
 		for dom := range allowDomains {
-			// We also drop invalid allowlists directly preventing broken config generations securely explicitly
+			// We also drop invalid allowlists directly preventing broken config generations.
 			if err := shared.ValidateDomain(dom, lessStrict, allowTLD); err != nil {
 				continue
 			}
@@ -230,7 +232,7 @@ func buildOutputs(
 	for _, fmtType := range outputFormats {
 		var outBlockName, outAllowName string
 
-		// Target configuration file assignments natively cleanly completely mappings
+		// Target configuration file assignments natively.
 		if outputFmt == "all" {
 			switch fmtType {
 			case "adblock":
@@ -299,7 +301,6 @@ func buildOutputs(
 
 		// Dynamically reroute the allowlist payload directly into the blocklist output file 
 		// explicitly for unified configuration structures (Dnsmasq, Unbound, Adblock, RPZ).
-		// Overwrites routing correctly bypassing external mappings implicitly explicitly.
 		var targetAllow *os.File
 		if outAllow != nil {
 			targetAllow = outAllow
@@ -316,7 +317,7 @@ func buildOutputs(
 			var allowSlice []string
 
 			// In unified Adblock output, we use standaloneAllows to prevent 
-			// redundant @@|| rules for domains already mapped to $denyallow overrides accurately inherently.
+			// redundant @@|| rules for domains already mapped to $denyallow overrides accurately.
 			if fmtType == "adblock" && outAllow == nil {
 				allowSlice = append(allowSlice, standaloneAllows...)
 			} else {
@@ -330,8 +331,7 @@ func buildOutputs(
 				allowSlice = append(allowSlice, removedLogUnusedAllows...)
 			}
 
-			// Sort the allowlist organically pulling comments above their functional nodes correctly.
-			// Resolves mappings cleanly tying elements correctly recursively intuitively implicitly.
+			// Sort the allowlist organically pulling comments above their functional nodes to preserve context.
 			sort.Slice(allowSlice, func(i, j int) bool {
 				cleanI := extractSortKey(allowSlice[i])
 				cleanJ := extractSortKey(allowSlice[j])
@@ -408,14 +408,14 @@ func buildOutputs(
 				}
 
 				// Only map unused allows to the blocklist if a separate allowlist file was NOT generated
-				// AND we didn't explicitly route them dynamically to outBlock natively via targetAllow priority explicitly natively.
+				// AND we didn't explicitly route them dynamically to outBlock.
 				if outAllow == nil && fmtType != "dnsmasq" && fmtType != "unbound" && fmtType != "adblock" && fmtType != "rpz" {
 					outputItems = append(outputItems, removedLogUnusedAllows...)
 				}
 
-				// Add conversions natively preserving original state comments
+				// Add conversions preserving original state comments
 				for _, conv := range conversionLog {
-					// Cleanly strip the prefix to avoid slice bound issues inherently safely.
+					// Cleanly strip the prefix to avoid slice bound issues.
 					cleanConv := strings.TrimSpace(strings.TrimPrefix(conv, "#"))
 					parts := strings.SplitN(cleanConv, " - ", 2)
 					if len(parts) == 2 {
@@ -442,21 +442,21 @@ func buildOutputs(
 					cmpI = cleanI
 					cmpJ = cleanJ
 				} else {
-					// Default standard routing algorithm natively flawlessly handling reverses explicitly accurately.
+					// Default standard routing algorithm perfectly handling reverses.
 					cmpI = shared.ReverseStr(cleanI)
 					cmpJ = shared.ReverseStr(cleanJ)
 				}
 
-				// Tie-breaker routing securely aligning comments to nodes perfectly.
+				// Tie-breaker routing safely aligning comments to nodes perfectly.
 				if cmpI == cmpJ {
 					isCommentI := strings.HasPrefix(outputItems[i], "#")
 					isCommentJ := strings.HasPrefix(outputItems[j], "#")
 
-					// Route comments safely above their functional domain node natively flawlessly explicitly consistently.
+					// Route comments safely above their functional domain node cleanly.
 					if isCommentI != isCommentJ {
 						return isCommentI
 					}
-					// Safe fallback resolving comment-to-comment or node-to-node ties inherently stably.
+					// Safe fallback resolving comment-to-comment or node-to-node ties stably.
 					return outputItems[i] < outputItems[j]
 				}
 				return cmpI < cmpJ
@@ -465,14 +465,14 @@ func buildOutputs(
 			// ----------------------------------------------------------------------
 			// High-Speed HOSTS Compression Buffer
 			// Capacity is strictly pre-allocated directly mapping to the target limit
-			// completely preventing runtime array reallocation overhead inherently explicitly.
+			// preventing runtime array reallocation overhead explicitly.
 			// ----------------------------------------------------------------------
 			var hostsBuffer []string
 			if compressHosts.Active {
 				hostsBuffer = make([]string, 0, compressHosts.Value)
 			}
 
-			// Inline closure isolating the compression flush cleanly safely mapping to disk inherently safely smoothly.
+			// Inline closure isolating the compression flush mapping to disk.
 			flushHosts := func() {
 				if len(hostsBuffer) > 0 {
 					outBlock.WriteString(fmt.Sprintf("0.0.0.0 %s\n", strings.Join(hostsBuffer, " ")))
@@ -485,7 +485,7 @@ func buildOutputs(
 					cleanComment := strings.TrimSpace(strings.TrimPrefix(item, "#"))
 
 					// Force an immediate buffer flush securely mapping hosts directly before
-					// formatting structural logs to strictly protect context alignments inherently explicitly safely.
+					// formatting structural logs to strictly protect context alignments.
 					if fmtType == "hosts" && compressHosts.Active {
 						flushHosts()
 					}
@@ -530,7 +530,7 @@ func buildOutputs(
 				}
 			}
 
-			// Trap any residual hosts natively leftover following execution completion explicitly safely smoothly.
+			// Trap any residual hosts natively leftover following execution completion.
 			if fmtType == "hosts" && compressHosts.Active {
 				flushHosts()
 			}
@@ -563,7 +563,7 @@ func buildOutputs(
 	}
 }
 
-// validAllowDomainsCounter helper function for the verbose output logger cleanly validating lengths securely natively.
+// validAllowDomainsCounter helper function for the verbose output logger cleanly validating lengths securely.
 func validAllowDomainsCounter(allowDomains map[string]struct{}, lessStrict bool, allowTLD bool) map[string]struct{} {
 	valid := make(map[string]struct{})
 	for dom := range allowDomains {
@@ -574,7 +574,7 @@ func validAllowDomainsCounter(allowDomains map[string]struct{}, lessStrict bool,
 	return valid
 }
 
-// extractSortKey strictly pulls the root domain from a string array index safely handling comments and Adblock prefixes explicitly natively.
+// extractSortKey strictly pulls the root domain from a string array index safely handling comments and Adblock prefixes.
 func extractSortKey(item string) string {
 	if strings.HasPrefix(item, "#") {
 		clean := strings.TrimSpace(strings.TrimPrefix(item, "#"))

@@ -1,10 +1,11 @@
 // ==========================================================================
 // Filename: shared/flags.go
-// Version: 1.2.0-20260429
-// Date: 2026-04-29 11:47 CEST
+// Version: 1.8.0-20260429
+// Date: 2026-04-29 15:00 CEST
 // Update Trail:
-//   - 1.2.0-20260429: Migrated OptionalIntFlag from clean-dom to shared
-//                     for suite-wide CLI parameter standardization.
+//   - 1.8.0 (2026-04-29): Updated version headers. Reviewed logic.
+//   - 1.2.0 (2026-04-29): Migrated OptionalIntFlag from clean-dom to shared
+//                         for suite-wide CLI parameter standardization.
 //   - 1.0.0: Initial StringSlice implementation.
 // Description: Centralized command-line flag structures for aggrip-go.
 //              Provides native support for multi-argument string flags and

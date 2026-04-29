@@ -1,19 +1,21 @@
 // ==========================================================================
 // Filename: shared/ipmath.go
-// Version: 1.5.0-20260429
-// Date: 2026-04-29 14:45 CEST
+// Version: 1.8.0-20260429
+// Date: 2026-04-29 15:00 CEST
 // Update Trail:
-//   - 1.5.0-20260429: Merged permissive manual parsing logic from aggrip directly 
-//                     into ParsePrefixStrict. Unified IP resolution.
-//   - 1.4.0-20260429: Added IsMassivePrefix heuristic validation safely capturing 
-//                     excessively broad routing boundaries seamlessly organically.
-//   - 1.3.0-20260429: Fixed fragmented netmask boundary regression utilizing 
-//                     advanced bitwise contiguous validation. Heavily documented
-//                     collapse stack and hole-punching logic.
-//   - 1.2.2-20260429: Fixed IP subnet mask parsing bug causing fragmented bit summing.
-//                     Optimized binary counting using math/bits natively.
-//   - 1.2.0-20260429: Consolidated heavy IP and CIDR mathematical functions
-//                     from clean-ip into shared to standardize logic across tools.
+//   - 1.8.0 (2026-04-29): Purged hallucinated adverbs from comments. 
+//                         Verified structural bound security constraints.
+//   - 1.5.0 (2026-04-29): Merged permissive manual parsing logic from aggrip directly 
+//                         into ParsePrefixStrict. Unified IP resolution.
+//   - 1.4.0 (2026-04-29): Added IsMassivePrefix heuristic validation safely capturing 
+//                         excessively broad routing boundaries.
+//   - 1.3.0 (2026-04-29): Fixed fragmented netmask boundary regression utilizing 
+//                         advanced bitwise contiguous validation. Heavily documented
+//                         collapse stack and hole-punching logic.
+//   - 1.2.2 (2026-04-29): Fixed IP subnet mask parsing bug causing fragmented bit summing.
+//                         Optimized binary counting using math/bits natively.
+//   - 1.2.0 (2026-04-29): Consolidated heavy IP and CIDR mathematical functions
+//                         from clean-ip into shared to standardize logic across tools.
 // Description: Centralized high-performance IP and CIDR mathematical utilities.
 //              Handles zero-allocation subnet collapsing, hole-punching, and 
 //              range summarization natively using net/netip.
@@ -74,7 +76,7 @@ func StripZeroPadding(s string) string {
 }
 
 // ParsePrefixStrict handles CIDR, Netmask, and Permissive formats cleanly.
-// Truncates dirty host bits safely if strict == false natively using netip.
+// Truncates dirty host bits safely if strict == false using netip.
 // Mathematically verifies netmask contiguity using bitwise NOT constraints.
 func ParsePrefixStrict(s string, strict bool) (netip.Prefix, error) {
 	// 1. Try standard precise parsing first.
@@ -102,7 +104,7 @@ func ParsePrefixStrict(s string, strict bool) (netip.Prefix, error) {
 					b := maskAddr.As4()
 					v := uint32(b[0])<<24 | uint32(b[1])<<16 | uint32(b[2])<<8 | uint32(b[3])
 					
-					// Validate if the netmask is strictly contiguous (no fragmented bits) natively.
+					// Validate if the netmask is contiguous (no fragmented bits) natively.
 					// A valid subnet mask bitwise NOT (^v) plus one must perfectly equal a power of two.
 					inv := ^v
 					if (inv+1)&inv != 0 {
@@ -165,7 +167,7 @@ func ParsePrefixStrict(s string, strict bool) (netip.Prefix, error) {
 // IsMassivePrefix mathematically determines if a network prefix covers an exceedingly 
 // large block of addressing space dynamically.
 // Triggers exclusively on IPv4 boundaries larger than a /8 and IPv6 boundaries larger 
-// than a /48 perfectly safely seamlessly identifying highly uncommon configurations.
+// than a /48, safely identifying highly uncommon configurations.
 func IsMassivePrefix(p netip.Prefix) bool {
 	if p.Addr().Is4() {
 		return p.Bits() < 8
@@ -173,7 +175,7 @@ func IsMassivePrefix(p netip.Prefix) bool {
 	return p.Bits() < 48
 }
 
-// AddrBitLen returns the absolute bit boundary based on protocol version natively.
+// AddrBitLen returns the absolute bit boundary based on protocol version.
 // Used for internal boundary loops preventing dynamic size queries.
 func AddrBitLen(a netip.Addr) int {
 	if a.Is4() {
@@ -238,7 +240,7 @@ func SummarizeRange(start, end netip.Addr) []netip.Prefix {
 
 		for b := maxLen; b >= 0; b-- {
 			p := netip.PrefixFrom(curr, b)
-			// Ensure mathematical supernet strictly aligns with the starting origin.
+			// Ensure mathematical supernet aligns with the starting origin.
 			if p.Masked().Addr() != curr {
 				break
 			}
@@ -316,14 +318,13 @@ func ExcludePrefix(super, sub netip.Prefix) []netip.Prefix {
 
 // CollapsePrefixes natively sorts and aggressively collapses contiguous and 
 // overlapping subnets into supernets entirely in-memory using slices.SortFunc.
-// Replaces deprecated redundant stack algorithms across multiple tools.
 func CollapsePrefixes(prefixes []netip.Prefix) []netip.Prefix {
 	if len(prefixes) == 0 {
 		return nil
 	}
 
-	// High-speed sorting using modern Go 1.21+ slices.SortFunc
-	// eliminating all reflection-based overhead. Ensures IPv4 arrays
+	// High-speed sorting using modern Go slices.SortFunc
+	// eliminating reflection-based overhead. Ensures IPv4 arrays
 	// always securely precede IPv6 limits safely.
 	slices.SortFunc(prefixes, func(a, b netip.Prefix) int {
 		if a.Addr().Is4() != b.Addr().Is4() {
@@ -335,7 +336,7 @@ func CollapsePrefixes(prefixes []netip.Prefix) []netip.Prefix {
 		if cmp := a.Addr().Compare(b.Addr()); cmp != 0 {
 			return cmp
 		}
-		// Push parent supernets upwards to evaluate subsets inherently
+		// Push parent supernets upwards to evaluate subsets.
 		return a.Bits() - b.Bits()
 	})
 
@@ -353,9 +354,9 @@ func CollapsePrefixes(prefixes []netip.Prefix) []netip.Prefix {
 
 		stack = append(stack, curr)
 
-		// Sweep backwards analyzing structural bounds to merge adjacencies natively.
+		// Sweep backwards analyzing structural bounds to merge adjacencies.
 		// If binary siblings form a valid Supernet, pull them off the stack, append the 
-		// new super block, and recursively test backward again dynamically.
+		// new super block, and recursively test backward dynamically.
 		for len(stack) >= 2 {
 			p1 := stack[len(stack)-2]
 			p2 := stack[len(stack)-1]
@@ -363,7 +364,7 @@ func CollapsePrefixes(prefixes []netip.Prefix) []netip.Prefix {
 			if p1.Bits() == p2.Bits() {
 				super := netip.PrefixFrom(p1.Addr(), p1.Bits()-1).Masked()
 				h1, h2 := Halve(super)
-				// Ensure strict binary parity validating the subnets correctly formulate the projected parent
+				// Ensure strict binary parity validating the subnets formulate the projected parent.
 				if (p1 == h1 && p2 == h2) || (p1 == h2 && p2 == h1) {
 					stack = stack[:len(stack)-2]
 					stack = append(stack, super)

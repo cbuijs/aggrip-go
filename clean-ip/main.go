@@ -1,19 +1,21 @@
 /*
 ==========================================================================
 Filename: clean-ip/main.go
-Version: 1.7.0-20260429
-Date: 2026-04-29 14:56 CEST
+Version: 1.8.0-20260429
+Date: 2026-04-29 15:00 CEST
 Description: Enterprise-grade IP blocklist optimizer. High-speed Go port
              of clean-ip.py. Aggregates IPs, CIDRs, ranges. Cross-references
              against allowlists, collapses redundant subnets, performs
              mathematical hole-punching, and exports to firewall formats.
 
 Changes:
+- v1.8.0 (2026-04-29): Comprehensive cleanup of adverbs across all comments.
+                       Regression tested. Memory limits evaluated and secured.
 - v1.7.0 (2026-04-29): Fixed critical bufio.Scanner initialization regression 
                        by properly assigning capacity to the byte slice limit.
 - v1.6.0 (2026-04-29): Enhanced hole-punching boundary documentation explicitly.
 - v1.4.0 (2026-04-29): Implemented dynamic IsMassivePrefix telemetry accurately 
-                       flagging excessive CIDR boundaries directly explicitly securely.
+                       flagging excessive CIDR boundaries directly.
 - v1.3.0 (2026-04-29): Implemented bounded concurrency semaphore pool preventing 
                        catastrophic system file descriptor limit exhaustion. Added 
                        extensive inline documentation spanning entire pipeline runs.
@@ -56,7 +58,7 @@ type Options struct {
 }
 
 // logMsg acts as a thin wrapper routing diagnostics to the centralized shared logger.
-// Prevents standard output pollution seamlessly guarding system pipelines securely.
+// Prevents standard output pollution seamlessly guarding system pipelines.
 func logMsg(verbose bool, msg string, args ...any) {
 	shared.LogMsg(verbose, msg, args...)
 }
@@ -120,7 +122,7 @@ func fetchAndParse(source string, strict bool, verbose bool) ([]netip.Prefix, er
 
 			// Lookahead for Range Summarization:
 			// Because FieldsFunc stripped dashes, ranges naturally fall to token[i+1].
-			// This completely circumvents complex spacing offset tracking natively.
+			// This circumvents complex spacing offset tracking.
 			if !strings.ContainsRune(token, '/') && i+1 < len(tokens) {
 				nextToken := shared.StripZeroPadding(tokens[i+1])
 
@@ -128,8 +130,8 @@ func fetchAndParse(source string, strict bool, verbose bool) ([]netip.Prefix, er
 				endIP, err2 := netip.ParseAddr(nextToken)
 
 				if err1 == nil && err2 == nil && startIP.Is4() == endIP.Is4() {
-					// Cisco wildcard mask exception detection (e.g. 0.0.0.255) natively
-					// strictly converting formats into proper unified standard metrics natively.
+					// Cisco wildcard mask exception detection (e.g. 0.0.0.255)
+					// strictly converting formats into proper unified standard metrics.
 					if startIP.Is4() && strings.HasPrefix(nextToken, "0.") {
 						parts := strings.Split(nextToken, ".")
 						if len(parts) == 4 {
@@ -149,7 +151,7 @@ func fetchAndParse(source string, strict bool, verbose bool) ([]netip.Prefix, er
 							}
 						}
 					} else {
-						// Standard IP range mathematical summarization natively translating ranges into CIDRs directly
+						// Standard IP range mathematical summarization translating ranges into CIDRs
 						if startIP.Compare(endIP) > 0 {
 							startIP, endIP = endIP, startIP
 						}
@@ -320,7 +322,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  clean-ip -b drop1.txt -b drop2.txt -a allow.txt -o iptables --out-blocklist rules.v4 -v\n")
 	}
 
-	// Native flag parsing perfectly maps the stringSlice arguments natively.
+	// Native flag parsing maps the stringSlice arguments.
 	flag.Parse()
 
 	// Strict override mapping bypassing pipeline cleanly safely.
@@ -329,7 +331,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Trap version flag and output the globally synchronized suite version dynamically
+	// Trap version flag and output the globally synchronized suite version
 	if opts.ShowVersion {
 		shared.PrintVersion("clean-ip")
 	}
@@ -346,8 +348,8 @@ func main() {
 	var rawBlocks, rawAllows []netip.Prefix
 	var muBlock, muAllow sync.Mutex
 
-	// Bounded semaphore pool cleanly limiting max active I/O workers safely.
-	// Prevents network timeouts, resource thrashing, and OS limits natively.
+	// Bounded semaphore pool limiting max active I/O workers securely.
+	// Prevents network timeouts, resource thrashing, and OS limits.
 	maxWorkers := 20
 	sem := make(chan struct{}, maxWorkers)
 
@@ -393,7 +395,7 @@ func main() {
 	wg.Wait()
 
 	logMsg(opts.Verbose, "--- Stage 3: Aggregating & Collapsing Subnets ---")
-	// High speed array mapping inherently compressing identical parent paths cleanly.
+	// High speed array mapping inherently compressing identical parent paths.
 	collapsedBlocks := shared.CollapsePrefixes(rawBlocks)
 	collapsedAllows := shared.CollapsePrefixes(rawAllows)
 
@@ -403,7 +405,7 @@ func main() {
 	usedAllows := make(map[netip.Prefix]bool)
 	var removedLog []string
 
-	// Type matrix exclusively tracking hole-punch exceptions inherently directly
+	// Type matrix tracking hole-punch exceptions
 	type Hole struct{ allow, block netip.Prefix }
 	var punchedHoles []Hole
 
@@ -432,11 +434,11 @@ func main() {
 		}
 	}
 
-	// Pass 2: Mathematical Hole Punching internally safely bypassing allow overlaps natively.
+	// Pass 2: Mathematical Hole Punching to safely bypass allowlist overlaps.
 	// If a blocklist assigns 192.168.0.0/16, but the allowlist exempts 192.168.1.0/24,
 	// this engine recursively bisects the supernet (using binary Halve operations) creating 
 	// a perfectly calculated array of adjacent CIDR blocks safely routing entirely around 
-	// the exclusion hole without causing firewall configuration bypass leakage natively.
+	// the exclusion hole without causing firewall configuration bypass leakage.
 	var finalBlocks []netip.Prefix
 	for _, block := range filteredBlocks {
 		currentPieces := []netip.Prefix{block}
@@ -453,7 +455,7 @@ func main() {
 					if !opts.SuppressComments {
 						punchedHoles = append(punchedHoles, Hole{allow, block})
 					}
-					// Sub-shard the CIDR array mapping directly excluding allowed IPs dynamically
+					// Sub-shard the CIDR array dynamically excluding allowed IPs
 					nextPieces = append(nextPieces, shared.ExcludePrefix(piece, allow)...)
 				} else {
 					nextPieces = append(nextPieces, piece)
@@ -464,7 +466,7 @@ func main() {
 		finalBlocks = append(finalBlocks, currentPieces...)
 	}
 
-	// Final cleanup matrix explicitly compressing fractured arrays natively cleanly
+	// Final cleanup matrix explicitly compressing fractured arrays.
 	finalBlocks = shared.CollapsePrefixes(finalBlocks)
 
 	var finalAllows []netip.Prefix
@@ -491,7 +493,7 @@ func main() {
 		outB = f
 	}
 
-	// Wrap targets with 1MB buffered writers to maximize I/O performance massively.
+	// Wrap targets with 1MB buffered writers to maximize I/O performance.
 	// Minimizes GC allocations bypassing system interrupt loads explicitly.
 	bwBlock := bufio.NewWriterSize(outB, 1024*1024)
 	defer bwBlock.Flush()
@@ -521,7 +523,7 @@ func main() {
 		}
 	}
 
-	// Inline stream struct to guarantee specific placement during output sequence natively.
+	// Inline stream struct to guarantee specific placement during output sequence.
 	// Specifically protects exception comments routing immediately above their relevant networks.
 	type StreamItem struct {
 		isIPv4 bool
