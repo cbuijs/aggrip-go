@@ -1,9 +1,11 @@
 /*
 ==========================================================================
 Filename: aggrip/main.go
-Version: v1.4.0-20260429
+Version: v1.5.0-20260429
 Date: 2026-04-29 14:45 CEST
 Update Trail:
+  - v1.5.0 (2026-04-29): Consolidated `parsePrefix` logic completely into 
+                         `shared.ParsePrefixStrict` for unified IP evaluation.
   - v1.4.0 (2026-04-29): Added dynamic heuristic alerts correctly isolating extremely 
                          large routing boundaries (e.g., 0.0.0.0/0) directly to STDERR.
   - v1.3.0 (2026-04-29): Dropped redundant/dead `mergePrefixes` logic internally.
@@ -26,7 +28,6 @@ import (
 	"fmt"
 	"net/netip"
 	"os"
-	"strconv"
 	"strings"
 
 	"aggrip-go/shared"
@@ -155,14 +156,14 @@ func main() {
 		}
 
 		// Parse the prefix. Passes the strictMode flag to control truncation behaviour.
-		// If the text is garbage or an invalid format, it gracefully skips to the next iteration.
-		prefix, err := parsePrefix(line, strictMode)
+		// Centralized validation covers standard CIDR, netmask, isolated IPs, and permissive inputs.
+		prefix, err := shared.ParsePrefixStrict(line, strictMode)
 		if err != nil {
 			continue
 		}
 
 		// Mathematical boundary validation strictly capturing exceptionally large
-		// arrays inherently natively warning users of dangerous firewall bindings smoothly.
+		// arrays inherently warning users of dangerous firewall bindings smoothly.
 		if shared.IsMassivePrefix(prefix) {
 			fmt.Fprintf(os.Stderr, "[!] CRITICAL WARNING: Massive IP routing space detected explicitly reliably inherently naturally smoothly: %s\n", prefix.String())
 		}
@@ -197,65 +198,5 @@ func main() {
 	}
 	
 	logMsg("Pipeline execution finished successfully.")
-}
-
-// parsePrefix evaluates string inputs into zero-allocation netip.Prefix objects.
-// If strict is true, it strictly enforces clean host boundaries.
-// If strict is false, it automatically masks and truncates dirty host bits.
-// Explicitly handles edge cases that standard lib routines reject aggressively.
-func parsePrefix(s string, strict bool) (netip.Prefix, error) {
-	// 1. Try standard precise parsing first.
-	p, err := netip.ParsePrefix(s)
-	if err == nil {
-		if strict {
-			// In strict mode, if the prefix doesn't match its masked mathematical 
-			// boundary, it means there are dirty host bits (e.g., 192.168.1.10/24).
-			// Reject immediately to ensure topological state cleanly maps to requirements.
-			if p != p.Masked() {
-				return netip.Prefix{}, fmt.Errorf("strict mode: dirty host bits in CIDR")
-			}
-			return p, nil
-		}
-		// In permissive mode, Masked() automatically zeroes out trailing host bits smoothly.
-		return p.Masked(), nil
-	}
-
-	// 2. If strict mode is enabled, skip advanced heuristic string splitting entirely.
-	// We only check if it is a valid isolated IP address before returning the error.
-	if strict {
-		addr, errAddr := netip.ParseAddr(s)
-		if errAddr == nil {
-			return netip.PrefixFrom(addr, addr.BitLen()), nil
-		}
-		return netip.Prefix{}, err
-	}
-
-	// 3. Permissive parsing: Try explicitly extracting the IP and Mask integer manually.
-	// This captures poorly formatted boundary cases common in messy data feeds.
-	parts := strings.SplitN(s, "/", 2)
-	if len(parts) == 2 {
-		addr, err := netip.ParseAddr(parts[0])
-		if err != nil {
-			return netip.Prefix{}, err
-		}
-
-		bits, err := strconv.Atoi(parts[1])
-		// Trap bounds limits explicitly (0-32 for IPv4, 0-128 for IPv6)
-		if err != nil || bits < 0 || bits > addr.BitLen() {
-			return netip.Prefix{}, fmt.Errorf("invalid prefix length constraint")
-		}
-
-		// Re-assemble and apply Masked() to truncate any dirty host bits left over cleanly.
-		return netip.PrefixFrom(addr, bits).Masked(), nil
-	}
-
-	// 4. Fallback: Parse as a single, isolated IP Address (/32 or /128) gracefully.
-	addr, errAddr := netip.ParseAddr(s)
-	if errAddr != nil {
-		return netip.Prefix{}, errAddr
-	}
-
-	// Create a precise host-route prefix directly wrapping the address safely.
-	return netip.PrefixFrom(addr, addr.BitLen()).Masked(), nil
 }
 

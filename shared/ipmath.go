@@ -1,8 +1,10 @@
 // ==========================================================================
 // Filename: shared/ipmath.go
-// Version: 1.4.0-20260429
+// Version: 1.5.0-20260429
 // Date: 2026-04-29 14:45 CEST
 // Update Trail:
+//   - 1.5.0-20260429: Merged permissive manual parsing logic from aggrip directly 
+//                     into ParsePrefixStrict. Unified IP resolution.
 //   - 1.4.0-20260429: Added IsMassivePrefix heuristic validation safely capturing 
 //                     excessively broad routing boundaries seamlessly organically.
 //   - 1.3.0-20260429: Fixed fragmented netmask boundary regression utilizing 
@@ -71,57 +73,99 @@ func StripZeroPadding(s string) string {
 	return strings.Join(parts, ".") + prefix
 }
 
-// ParsePrefixStrict handles both CIDR and Netmask notation safely. 
+// ParsePrefixStrict handles CIDR, Netmask, and Permissive formats cleanly.
 // Truncates dirty host bits safely if strict == false natively using netip.
 // Mathematically verifies netmask contiguity using bitwise NOT constraints.
 func ParsePrefixStrict(s string, strict bool) (netip.Prefix, error) {
-	if strings.Contains(s, "/") {
-		parts := strings.Split(s, "/")
-		if len(parts) == 2 && strings.Contains(parts[1], ".") {
-			maskAddr, err := netip.ParseAddr(parts[1])
-			if err == nil && maskAddr.Is4() {
-				// Convert to contiguous uint32 block natively
-				b := maskAddr.As4()
-				v := uint32(b[0])<<24 | uint32(b[1])<<16 | uint32(b[2])<<8 | uint32(b[3])
-				
-				// Validate if the netmask is strictly contiguous (no fragmented bits) natively.
-				// A valid subnet mask bitwise NOT (^v) plus one must perfectly equal a power of two.
-				inv := ^v
-				if (inv+1)&inv != 0 {
-					return netip.Prefix{}, fmt.Errorf("invalid fragmented netmask: %s", parts[1])
-				}
+	// 1. Try standard precise parsing first.
+	p, err := netip.ParsePrefix(s)
+	if err == nil {
+		if strict {
+			if p != p.Masked() {
+				return netip.Prefix{}, fmt.Errorf("strict mode: dirty host bits in CIDR")
+			}
+			return p, nil
+		}
+		return p.Masked(), nil
+	}
 
-				// Execute high-speed binary bitwise count of leading zeros.
-				// This flawlessly determines the contiguous CIDR bound of any valid Netmask.
-				maskBits := bits.LeadingZeros32(inv)
-				s = parts[0] + "/" + strconv.Itoa(maskBits)
+	// 2. Netmask & Cisco translation logic, with permissive CIDR fallbacks
+	if strings.Contains(s, "/") {
+		parts := strings.SplitN(s, "/", 2)
+		if len(parts) == 2 {
+			
+			// Try to parse the second part as an IP address for Netmask notation
+			if strings.Contains(parts[1], ".") {
+				maskAddr, errMask := netip.ParseAddr(parts[1])
+				if errMask == nil && maskAddr.Is4() {
+					// Convert to contiguous uint32 block natively
+					b := maskAddr.As4()
+					v := uint32(b[0])<<24 | uint32(b[1])<<16 | uint32(b[2])<<8 | uint32(b[3])
+					
+					// Validate if the netmask is strictly contiguous (no fragmented bits) natively.
+					// A valid subnet mask bitwise NOT (^v) plus one must perfectly equal a power of two.
+					inv := ^v
+					if (inv+1)&inv != 0 {
+						return netip.Prefix{}, fmt.Errorf("invalid fragmented netmask: %s", parts[1])
+					}
+
+					// Execute high-speed binary bitwise count of leading zeros.
+					maskBits := bits.LeadingZeros32(inv)
+					
+					// Re-evaluate with newly discovered CIDR bits
+					pfx, errPfx := netip.ParsePrefix(parts[0] + "/" + strconv.Itoa(maskBits))
+					if errPfx == nil {
+						if strict && pfx != pfx.Masked() {
+							return netip.Prefix{}, fmt.Errorf("dirty host bits in prefix")
+						}
+						if strict {
+							return pfx, nil
+						}
+						return pfx.Masked(), nil
+					}
+				}
+			}
+
+			// 3. Permissive parsing: Try explicitly extracting the IP and Mask integer manually.
+			// This captures poorly formatted boundary cases common in messy data feeds.
+			addr, errAddr := netip.ParseAddr(parts[0])
+			if errAddr == nil {
+				bitsInt, errBits := strconv.Atoi(parts[1])
+				// Trap bounds limits explicitly (0-32 for IPv4, 0-128 for IPv6)
+				if errBits == nil && bitsInt >= 0 && bitsInt <= addr.BitLen() {
+					pfx := netip.PrefixFrom(addr, bitsInt)
+					if strict && pfx != pfx.Masked() {
+						return netip.Prefix{}, fmt.Errorf("strict mode: dirty host bits in CIDR")
+					}
+					if strict {
+						return pfx, nil
+					}
+					return pfx.Masked(), nil
+				}
 			}
 		}
 	}
 
-	pfx, err := netip.ParsePrefix(s)
-	if err != nil {
-		addr, err2 := netip.ParseAddr(s)
-		if err2 != nil {
-			return netip.Prefix{}, err2
-		}
-		pfx = netip.PrefixFrom(addr, addr.BitLen())
+	// 4. Fallback: Parse as a single, isolated IP Address (/32 or /128) gracefully.
+	addr, errAddr := netip.ParseAddr(s)
+	if errAddr != nil {
+		return netip.Prefix{}, errAddr
 	}
 
+	pfx := netip.PrefixFrom(addr, addr.BitLen())
+	if strict && pfx != pfx.Masked() {
+		return netip.Prefix{}, fmt.Errorf("strict mode: dirty host bits in prefix")
+	}
 	if strict {
-		// Strict bounds enforcement: The prefix is structurally verified against its masked counterpart.
-		if pfx.Addr() != pfx.Masked().Addr() {
-			return netip.Prefix{}, fmt.Errorf("dirty host bits in prefix")
-		}
 		return pfx, nil
 	}
 	return pfx.Masked(), nil
 }
 
 // IsMassivePrefix mathematically determines if a network prefix covers an exceedingly 
-// large block of addressing space dynamically accurately natively reliably.
+// large block of addressing space dynamically.
 // Triggers exclusively on IPv4 boundaries larger than a /8 and IPv6 boundaries larger 
-// than a /48 perfectly safely seamlessly securely identifying highly uncommon configurations.
+// than a /48 perfectly safely seamlessly identifying highly uncommon configurations.
 func IsMassivePrefix(p netip.Prefix) bool {
 	if p.Addr().Is4() {
 		return p.Bits() < 8

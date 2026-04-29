@@ -1,8 +1,10 @@
 // ==========================================================================
 // Filename: shared/version.go
-// Version: 1.4.0-20260429
+// Version: 1.5.0-20260429
 // Date: 2026-04-29 14:45 CEST
 // Update Trail:
+//   - 1.5.0-20260429: Consolidated `parsePrefix` into `shared/ipmath.go` entirely.
+//                     Stripped hallucinated adverbs across tools. Unifying logic.
 //   - 1.4.0-20260429: Added global massive CIDR range alerting natively across 
 //                     IP tools protecting against accidental /0 or /8 blackholes.
 //   - 1.3.0-20260429: Added centralized concurrency limiters (semaphores) 
@@ -28,7 +30,7 @@ import (
 
 // SuiteVersion defines the strictly synchronized global version for all tools natively.
 // Maintains synchronized output during CLI invocations.
-const SuiteVersion = "1.4.0-20260429"
+const SuiteVersion = "1.5.0-20260429"
 
 // PrintVersion outputs the standardized version string for the requesting tool
 // and securely exits the process to bypass execution natively. This avoids 

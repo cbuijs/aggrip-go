@@ -1,7 +1,7 @@
 # ==========================================================================
 # Filename: .github/workflows/release.yml
-# Version: 1.0.0
-# Date: 2026-04-23
+# Version: 1.5.0
+# Date: 2026-04-29
 # Description: Automated build and release pipeline for aggrip-go suite.
 #              Compiles static, stripped binaries for darwin/arm64, 
 #              linux/arm64, and linux/amd64 on every push to main.
