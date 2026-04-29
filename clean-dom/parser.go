@@ -1,13 +1,15 @@
 /*
 ==========================================================================
 Filename: clean-dom/parser.go
-Version: 1.6.0-20260429
-Date: 2026-04-29 14:46 CEST
+Version: 1.7.0-20260429
+Date: 2026-04-29 14:56 CEST
 Description: Handles file I/O, format detection, Adblock translation, 
              and parallel bulk ingestion of raw list payloads. Strict
              path rejection protects DNS zone integrity.
 
 Update Trail:
+  - 1.7.0 (2026-04-29): Hardened HNS trailing-slash validation to reject 
+                        complex nested path bypasses completely natively.
   - 1.6.0 (2026-04-29): Migrated local isASCII function to centralized 
                         shared.IsASCII maximizing code reusability.
   - 1.5.0 (2026-04-29): Cleansed extensive hallucinated adverb trails from 
@@ -148,9 +150,9 @@ func stripHnsSlash(token string) string {
 		return token
 	}
 
-	// Ensure the slash is exclusively at the very end of the string.
-	// This inherently blocks URLs containing inline paths (e.g., domain.com/ads/).
-	if strings.Index(token, "/") == len(token)-1 {
+	// Ensure the slash is exclusively at the very end of the string, preventing
+	// nested bypass strings (e.g. domain.com/adpath/) from slipping through natively.
+	if strings.Count(token, "/") == 1 && strings.HasSuffix(token, "/") {
 		cleanNoSlash := token[:len(token)-1]
 
 		// Normalize to extract the true base domain without Adblock syntax (like ||).

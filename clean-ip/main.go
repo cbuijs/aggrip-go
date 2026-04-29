@@ -1,14 +1,16 @@
 /*
 ==========================================================================
 Filename: clean-ip/main.go
-Version: 1.6.0-20260429
-Date: 2026-04-29 14:46 CEST
+Version: 1.7.0-20260429
+Date: 2026-04-29 14:56 CEST
 Description: Enterprise-grade IP blocklist optimizer. High-speed Go port
              of clean-ip.py. Aggregates IPs, CIDRs, ranges. Cross-references
              against allowlists, collapses redundant subnets, performs
              mathematical hole-punching, and exports to firewall formats.
 
 Changes:
+- v1.7.0 (2026-04-29): Fixed critical bufio.Scanner initialization regression 
+                       by properly assigning capacity to the byte slice limit.
 - v1.6.0 (2026-04-29): Enhanced hole-punching boundary documentation explicitly.
 - v1.4.0 (2026-04-29): Implemented dynamic IsMassivePrefix telemetry accurately 
                        flagging excessive CIDR boundaries directly explicitly securely.
@@ -79,7 +81,8 @@ func fetchAndParse(source string, strict bool, verbose bool) ([]netip.Prefix, er
 
 	// Pre-allocate a 1MB buffer for processing massive blocklists with giant lines
 	// explicitly neutralizing "token too long" faults natively.
-	buf := make([]byte, 0, 64*1024)
+	// REPAIR: Bound byte slice correctly to prevent capacity expansion zero-panics.
+	buf := make([]byte, 64*1024)
 	scanner.Buffer(buf, 1024*1024)
 
 	// Custom tokenizer dropping all spaces, tabs, equal signs, and dashes natively.
