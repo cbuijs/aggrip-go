@@ -1,14 +1,15 @@
 /*
 ==========================================================================
 Filename: clean-dom/main.go
-Version: 1.2.1-20260429
-Date: 2026-04-29 11:52 CEST
+Version: 1.2.2-20260429
+Date: 2026-04-29 12:22 CEST
 Update Trail:
+  - 1.2.2 (2026-04-29): Eliminated sync.Mutex contention. Refactored parallel
+                        ingestion to use lock-free channel fan-in natively.
   - 1.2.1 (2026-04-29): Centralized suite versioning to shared/version.go.
   - 1.2.0 (2026-04-29): Synced version across aggrip-go tools. Migrated TLD
                         init validation arrays to shared namespace logic.
                         Utilized shared.OptionalIntFlag for flag standardization.
-  - 1.1.9 (2026-04-29): Refactored to utilize centralized shared library.
 Description: Enterprise-grade DNS blocklist optimizer. Features upfront 
              file format detection, concurrent bulk ingestion, punycode 
              translation, dynamic adblock routing, and O(N log N) tree 
@@ -23,7 +24,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"sync"
 
 	"aggrip-go/shared"
 )
@@ -168,46 +168,62 @@ func main() {
 	var conversionLog []string
 
 	logMsg("Consolidating Blocklists...")
-	var wg sync.WaitGroup
-	var mu sync.Mutex
 
+	// Advanced Concurrency: processList utilizes a lock-free channel fan-in pattern natively
+	// bypassing slow sync.Mutex slice appendages for substantial performance gains.
 	processList := func(list []string, isTopN bool, listType string) {
+		if len(list) == 0 {
+			return
+		}
+
+		ch := make(chan ParsedLists, len(list))
+
 		for _, source := range list {
-			wg.Add(1)
 			go func(s string) {
-				defer wg.Done()
-				res := readDomainsBulk(s, isTopN, listType)
-				mu.Lock()
-				blockDomains = append(blockDomains, res.Blocks...)
-				for _, a := range res.Allows {
-					allowDomains[a] = struct{}{}
-				}
-				for _, da := range res.DenyAllows {
-					denyAllowOverrides[da] = struct{}{}
-				}
-				conversionLog = append(conversionLog, res.Conversions...)
-				mu.Unlock()
+				// Transmit populated arrays cleanly over channel bounds
+				ch <- readDomainsBulk(s, isTopN, listType)
 			}(source)
 		}
+
+		// Pull payloads lock-free natively from the channel
+		for i := 0; i < len(list); i++ {
+			res := <-ch
+			blockDomains = append(blockDomains, res.Blocks...)
+			for _, a := range res.Allows {
+				allowDomains[a] = struct{}{}
+			}
+			for _, da := range res.DenyAllows {
+				denyAllowOverrides[da] = struct{}{}
+			}
+			conversionLog = append(conversionLog, res.Conversions...)
+		}
+		close(ch)
 	}
 
 	processList(blocklists, false, "Blocklist")
-	wg.Wait()
 
 	if len(allowlists) > 0 {
 		logMsg("Consolidating Allowlists...")
 		processList(allowlists, false, "Allowlist")
-		wg.Wait()
 	}
 
 	topnDomains := make(map[string]struct{})
 	if len(topnlists) > 0 {
 		logMsg("Consolidating Top-N Lists...")
 		var topNBlocks []string
+		
+		ch := make(chan ParsedLists, len(topnlists))
 		for _, source := range topnlists {
-			res := readDomainsBulk(source, true, "Top-N")
+			go func(s string) {
+				ch <- readDomainsBulk(s, true, "Top-N")
+			}(source)
+		}
+		for i := 0; i < len(topnlists); i++ {
+			res := <-ch
 			topNBlocks = append(topNBlocks, res.Blocks...)
 		}
+		close(ch)
+		
 		for _, b := range topNBlocks {
 			topnDomains[b] = struct{}{}
 		}

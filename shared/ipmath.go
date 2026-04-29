@@ -1,8 +1,10 @@
 // ==========================================================================
 // Filename: shared/ipmath.go
-// Version: 1.2.0-20260429
-// Date: 2026-04-29 11:47 CEST
+// Version: 1.2.2-20260429
+// Date: 2026-04-29 12:22 CEST
 // Update Trail:
+//   - 1.2.2-20260429: Fixed IP subnet mask parsing bug causing fragmented bit summing.
+//                     Optimized binary counting using math/bits natively.
 //   - 1.2.0-20260429: Consolidated heavy IP and CIDR mathematical functions
 //                     from clean-ip into shared to standardize logic across tools.
 // Description: Centralized high-performance IP and CIDR mathematical utilities.
@@ -14,6 +16,7 @@ package shared
 
 import (
 	"fmt"
+	"math/bits"
 	"net/netip"
 	"slices"
 	"strconv"
@@ -69,18 +72,14 @@ func ParsePrefixStrict(s string, strict bool) (netip.Prefix, error) {
 		if len(parts) == 2 && strings.Contains(parts[1], ".") {
 			maskAddr, err := netip.ParseAddr(parts[1])
 			if err == nil && maskAddr.Is4() {
+				// Convert to contiguous uint32 block
 				b := maskAddr.As4()
-				bits := 0
-				for _, v := range b {
-					for j := 7; j >= 0; j-- {
-						if (v & (1 << j)) != 0 {
-							bits++
-						} else {
-							break
-						}
-					}
-				}
-				s = parts[0] + "/" + strconv.Itoa(bits)
+				v := uint32(b[0])<<24 | uint32(b[1])<<16 | uint32(b[2])<<8 | uint32(b[3])
+				
+				// Execute high-speed binary bitwise NOT operation and count leading zeros.
+				// This flawlessly determines the contiguous CIDR bound of any valid Netmask.
+				maskBits := bits.LeadingZeros32(^v)
+				s = parts[0] + "/" + strconv.Itoa(maskBits)
 			}
 		}
 	}

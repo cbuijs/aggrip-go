@@ -1,16 +1,17 @@
 /*
 ==========================================================================
 Filename: clean-dom/parser.go
-Version: 1.2.0-20260429
-Date: 2026-04-29 11:47 CEST
+Version: 1.2.2-20260429
+Date: 2026-04-29 12:22 CEST
 Description: Handles file I/O, format detection, Adblock translation, 
              and parallel bulk ingestion of raw list payloads. Strict
              path rejection protects DNS zone integrity.
 
 Update Trail:
+  - 1.2.2 (2026-04-29): Dropped legacy fetchLines memory array allocation wrapper. 
+                        Refactored to stream directly through the buffer, drastically 
+                        improving latency, lowering GC overhead, and reducing RAM.
   - 1.2.0 (2026-04-29): Updated IsHNSTLD call routing to utilize shared module.
-  - 1.1.8 (2026-04-29): Integrated aggrip-go/shared library to centralize
-                        HTTP/file streams and heuristic fast-paths.
 ==========================================================================
 */
 
@@ -308,12 +309,15 @@ func parseDomainToken(token string) parseResult {
 	return res
 }
 
-// fetchLines retrieves string payloads natively via bulk read from HTTP or local paths.
-// Optimized: Utilizes shared.FetchStream for consolidated cross-tool I/O routing.
-func fetchLines(source string) ([]string, error) {
+// readDomainsBulk orchestrates ingestion, heuristic format evaluation, and data extraction.
+// Refactored to stream explicitly rather than buffering full array boundaries.
+func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
+	var result ParsedLists
+
 	stream, err := shared.FetchStream(source)
 	if err != nil {
-		return nil, err
+		log.Printf("Error reading source '%s': %v\n", source, err)
+		return result
 	}
 	defer stream.Close()
 
@@ -322,50 +326,48 @@ func fetchLines(source string) ([]string, error) {
 	buf := make([]byte, 64*1024)
 	scanner.Buffer(buf, 1024*1024)
 
-	// Pre-allocate the dynamic string slice to dramatically cut resizing overhead
-	lines := make([]string, 0, 100000)
+	// Step 1: Buffer explicitly just enough valid lines to trigger heuristic format detection natively
+	var sampleLines []string
+	var validSamples int
 
 	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
-	}
+		line := scanner.Text()
+		sampleLines = append(sampleLines, line)
 
-	return lines, scanner.Err()
-}
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" && !strings.HasPrefix(trimmed, "!") && !strings.HasPrefix(trimmed, "#") {
+			validSamples++
+		}
 
-// readDomainsBulk orchestrates ingestion, heuristic format evaluation, and data extraction.
-func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
-	var result ParsedLists
-	lines, err := fetchLines(source)
-	if err != nil {
-		log.Printf("Error reading source '%s': %v\n", source, err)
-		return result
+		if validSamples >= 50 {
+			break
+		}
 	}
 
 	detectedFmt := inputFormat
 	if detectedFmt == "" {
-		detectedFmt = detectFormat(lines)
+		detectedFmt = detectFormat(sampleLines)
 	}
 
 	logMsg("Bulk loading data from: %s (Format: %s)", source, strings.ToUpper(detectedFmt))
 
+	var rawFile *os.File
 	if workDir != "" {
 		h := sha256.New()
 		h.Write([]byte(source))
 		hashStr := fmt.Sprintf("%x", h.Sum(nil))[:16]
 		rawPath := filepath.Join(workDir, hashStr+".raw")
 
-		f, err := os.Create(rawPath)
-		if err == nil {
-			f.WriteString(fmt.Sprintf("# Type: %s | Source: %s\n", listType, source))
-			for _, l := range lines {
-				f.WriteString(l + "\n")
-			}
-			f.Close()
+		var errRaw error
+		rawFile, errRaw = os.Create(rawPath)
+		if errRaw == nil {
+			rawFile.WriteString(fmt.Sprintf("# Type: %s | Source: %s\n", listType, source))
 		}
 	}
 
 	isAllowList := (listType == "Allowlist")
 
+	// inline boundary closure cleanly managing parsed results securely.
 	processParsed := func(parsed parseResult, rawToken string) {
 		// Evaluate the true intent by letting explicit Adblock syntax override the default file type context natively.
 		isEffectivelyAllow := parsed.IsAllow || (isAllowList && !parsed.IsBlock)
@@ -397,31 +399,32 @@ func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 		}
 	}
 
-	for _, rawLine := range lines {
+	// inline processor bridging detection samples directly with trailing unbounded stream
+	processLineFn := func(rawLine string) {
 		rawLine = strings.TrimSpace(rawLine)
 		if rawLine == "" || strings.HasPrefix(rawLine, "!") {
-			continue
+			return
 		}
 
 		firstHash := strings.Index(rawLine, "#")
 		if firstHash != -1 {
 			if firstHash == 0 {
-				continue
+				return
 			}
 			firstSpace := strings.Index(rawLine, " ")
 			if firstSpace == -1 || firstHash < firstSpace {
-				continue
+				return
 			}
 		}
 
 		line := strings.TrimSpace(strings.Split(rawLine, "#")[0])
 		if line == "" {
-			continue
+			return
 		}
 
 		if isTopN && strings.Contains(line, ",") {
 			if inputFormat != "" && inputFormat != "domain" && inputFormat != "routedns" && inputFormat != "squid" {
-				continue
+				return
 			}
 			parts := strings.SplitN(line, ",", 2)
 			if len(parts) > 1 {
@@ -431,13 +434,13 @@ func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 				if strings.Contains(rawDom, "/") {
 					rawDom = stripHnsSlash(rawDom)
 					if rawDom == "" {
-						continue
+						return
 					}
 				}
 
 				dom := normalizeDomain(rawDom)
 				if dom == "" {
-					continue
+					return
 				}
 
 				punyDom := dom
@@ -448,7 +451,7 @@ func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 						punyDom = p
 						domOrig = dom
 					} else {
-						continue
+						return
 					}
 				}
 
@@ -459,12 +462,12 @@ func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 					}
 				}
 			}
-			continue
+			return
 		}
 
 		parts := strings.Fields(line)
 		if len(parts) == 0 {
-			continue
+			return
 		}
 		firstToken := parts[0]
 
@@ -486,7 +489,7 @@ func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 			isDomain = (detectedFmt == "domain")
 
 			if isHosts && !shared.IsFastIPStrict(firstToken) {
-				continue
+				return
 			}
 		} else {
 			isHosts = shared.IsFastIPStrict(firstToken)
@@ -498,19 +501,19 @@ func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 
 		if inputFormat != "" {
 			if inputFormat == "hosts" && !isHosts {
-				continue
+				return
 			}
 			if inputFormat == "adblock" && !isAdblock {
-				continue
+				return
 			}
 			if inputFormat == "routedns" && !(isRoutedns || isDomain) {
-				continue
+				return
 			}
 			if inputFormat == "squid" && !isSquid {
-				continue
+				return
 			}
 			if inputFormat == "domain" && !isDomain {
-				continue
+				return
 			}
 		}
 
@@ -520,11 +523,37 @@ func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 					processParsed(parseDomainToken(part), part)
 				}
 			}
-			continue
+			return
 		}
 
 		processParsed(parseDomainToken(firstToken), firstToken)
 	}
+
+	// Step 2: Iterate over the buffered samples natively
+	for _, line := range sampleLines {
+		if rawFile != nil {
+			rawFile.WriteString(line + "\n")
+		}
+		processLineFn(line)
+	}
+
+	// Step 3: Fast-path stream directly pushing lines through without O(N) memory buildup
+	for scanner.Scan() {
+		line := scanner.Text()
+		if rawFile != nil {
+			rawFile.WriteString(line + "\n")
+		}
+		processLineFn(line)
+	}
+
+	if err := scanner.Err(); err != nil {
+		log.Printf("Warning: Stream EOF parsing error on source '%s': %v\n", source, err)
+	}
+
+	if rawFile != nil {
+		rawFile.Close()
+	}
+
 	return result
 }
 
