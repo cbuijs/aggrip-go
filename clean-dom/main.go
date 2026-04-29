@@ -1,9 +1,12 @@
 /*
 ==========================================================================
 Filename: clean-dom/main.go
-Version: 1.2.2-20260429
-Date: 2026-04-29 12:22 CEST
+Version: 1.3.0-20260429
+Date: 2026-04-29 14:24 CEST
 Update Trail:
+  - 1.3.0 (2026-04-29): Implemented global concurrency limits using bounded semaphores 
+                        to prevent File Descriptor (FD) exhaustion on massive inputs.
+                        Added heavy commentary mapping complex memory/sync routes.
   - 1.2.2 (2026-04-29): Eliminated sync.Mutex contention. Refactored parallel
                         ingestion to use lock-free channel fan-in natively.
   - 1.2.1 (2026-04-29): Centralized suite versioning to shared/version.go.
@@ -28,7 +31,8 @@ import (
 	"aggrip-go/shared"
 )
 
-// Global Flags defining core operations and behaviors across all files in main package
+// Global Flags defining core operations and behaviors across all files in main package.
+// Explicitly linked to CLI argument routing inherently spanning logic bounds.
 var (
 	blocklists       shared.StringSlice
 	allowlists       shared.StringSlice
@@ -99,7 +103,7 @@ func init() {
 	flag.BoolVar(&helpFlag, "help", false, "Show this help message")
 	flag.BoolVar(&helpFlag, "h", false, "Short for --help")
 
-	// Custom formatted usage explicitly declaring standard flags across the suite
+	// Custom formatted usage explicitly declaring standard flags across the suite safely
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage of clean-dom:\n\n")
 		fmt.Fprintf(os.Stderr, "Core Options:\n")
@@ -137,13 +141,13 @@ func main() {
 	log.SetFlags(0)
 	flag.Parse()
 
-	// Strictly trap help flags bypassing default runtime logic
+	// Strictly trap help flags bypassing default runtime logic dynamically
 	if helpFlag {
 		flag.Usage()
 		os.Exit(0)
 	}
 
-	// Trap version flag and output the globally synchronized suite version dynamically
+	// Trap version flag and output the globally synchronized suite version flawlessly
 	if showVersion {
 		shared.PrintVersion("clean-dom")
 	}
@@ -156,12 +160,14 @@ func main() {
 	}
 
 	// Initialize the TLD Validation Dictionaries securely upfront in shared memory
+	// Pre-caches hash tables strictly enforcing lookup constraints log(O) bounds.
 	shared.InitTLDValidator(validTlds, verbose)
 
 	if workDir != "" {
 		os.MkdirAll(workDir, 0755)
 	}
 
+	// Central slices and maps buffering normalized rules globally before tree resolution
 	var blockDomains []string
 	allowDomains := make(map[string]struct{})
 	denyAllowOverrides := make(map[string]struct{})
@@ -178,14 +184,26 @@ func main() {
 
 		ch := make(chan ParsedLists, len(list))
 
+		// Bounded concurrency limiting active I/O workers explicitly securely.
+		// Protects against file descriptor exhaustion or network DOS from thousands of inputs.
+		maxWorkers := 20
+		if len(list) < maxWorkers {
+			maxWorkers = len(list)
+		}
+		sem := make(chan struct{}, maxWorkers)
+
 		for _, source := range list {
 			go func(s string) {
+				// Acquire execution token from semaphore blocking pool safely
+				sem <- struct{}{}
 				// Transmit populated arrays cleanly over channel bounds
 				ch <- readDomainsBulk(s, isTopN, listType)
+				// Release execution token natively back into bounds
+				<-sem
 			}(source)
 		}
 
-		// Pull payloads lock-free natively from the channel
+		// Pull payloads lock-free natively from the channel synchronizing memory directly
 		for i := 0; i < len(list); i++ {
 			res := <-ch
 			blockDomains = append(blockDomains, res.Blocks...)
@@ -200,6 +218,7 @@ func main() {
 		close(ch)
 	}
 
+	// Process primary configuration matrices identically using high-speed pooling limits
 	processList(blocklists, false, "Blocklist")
 
 	if len(allowlists) > 0 {
@@ -213,11 +232,23 @@ func main() {
 		var topNBlocks []string
 		
 		ch := make(chan ParsedLists, len(topnlists))
+
+		// Implement strict bounded limits directly mirroring standard list behaviors natively.
+		maxTopNWorkers := 20
+		if len(topnlists) < maxTopNWorkers {
+			maxTopNWorkers = len(topnlists)
+		}
+		semTopN := make(chan struct{}, maxTopNWorkers)
+
 		for _, source := range topnlists {
 			go func(s string) {
+				semTopN <- struct{}{}
 				ch <- readDomainsBulk(s, true, "Top-N")
+				<-semTopN
 			}(source)
 		}
+
+		// Extract populated structures safely handling boundaries securely
 		for i := 0; i < len(topnlists); i++ {
 			res := <-ch
 			topNBlocks = append(topNBlocks, res.Blocks...)
@@ -229,6 +260,8 @@ func main() {
 		}
 	}
 
+	// Offload completely mapped and parsed matrices into the formatter engine natively.
+	// Formatter handles sorting, formatting translation, file I/O operations inherently.
 	if outputFmt == "all" && len(topnlists) > 0 {
 		buildOutputs(blockDomains, allowDomains, denyAllowOverrides, conversionLog, nil, "", false)
 		buildOutputs(blockDomains, allowDomains, denyAllowOverrides, conversionLog, topnDomains, ".top-n", true)

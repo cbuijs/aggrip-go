@@ -1,14 +1,19 @@
 /*
 ==========================================================================
 Filename: clean-ip/main.go
-Version: 1.2.1-20260429
-Date: 2026-04-29 11:52 CEST
+Version: 1.4.0-20260429
+Date: 2026-04-29 14:45 CEST
 Description: Enterprise-grade IP blocklist optimizer. High-speed Go port
              of clean-ip.py. Aggregates IPs, CIDRs, ranges. Cross-references
              against allowlists, collapses redundant subnets, performs
              mathematical hole-punching, and exports to firewall formats.
 
 Changes:
+- v1.4.0 (2026-04-29): Implemented dynamic IsMassivePrefix telemetry accurately 
+                       flagging excessive CIDR boundaries directly explicitly securely.
+- v1.3.0 (2026-04-29): Implemented bounded concurrency semaphore pool preventing 
+                       catastrophic system file descriptor limit exhaustion. Added 
+                       extensive inline documentation spanning entire pipeline runs.
 - v1.2.1 (2026-04-29): Centralized suite versioning to shared/version.go.
 - v1.2.0 (2026-04-29): Consolidated heavy IP mathematics into shared/ipmath.go
                        for major code-management improvements. Standardized CLI.
@@ -48,6 +53,7 @@ type Options struct {
 }
 
 // logMsg acts as a thin wrapper routing diagnostics to the centralized shared logger.
+// Prevents standard output pollution seamlessly guarding system pipelines securely.
 func logMsg(verbose bool, msg string, args ...any) {
 	shared.LogMsg(verbose, msg, args...)
 }
@@ -71,6 +77,7 @@ func fetchAndParse(source string, strict bool, verbose bool) ([]netip.Prefix, er
 	scanner := bufio.NewScanner(stream)
 
 	// Pre-allocate a 1MB buffer for processing massive blocklists with giant lines
+	// explicitly neutralizing "token too long" faults natively.
 	buf := make([]byte, 0, 64*1024)
 	scanner.Buffer(buf, 1024*1024)
 
@@ -98,6 +105,7 @@ func fetchAndParse(source string, strict bool, verbose bool) ([]netip.Prefix, er
 		for i := 0; i < len(tokens); {
 			token := shared.StripZeroPadding(tokens[i])
 
+			// Fast structural checks preventing the engine from applying expensive logic
 			if !shared.IsIPHeuristic(token) {
 				i++
 				continue
@@ -108,7 +116,7 @@ func fetchAndParse(source string, strict bool, verbose bool) ([]netip.Prefix, er
 
 			// Lookahead for Range Summarization:
 			// Because FieldsFunc stripped dashes, ranges naturally fall to token[i+1].
-			// This completely circumvents complex spacing offset tracking.
+			// This completely circumvents complex spacing offset tracking natively.
 			if !strings.ContainsRune(token, '/') && i+1 < len(tokens) {
 				nextToken := shared.StripZeroPadding(tokens[i+1])
 
@@ -116,7 +124,8 @@ func fetchAndParse(source string, strict bool, verbose bool) ([]netip.Prefix, er
 				endIP, err2 := netip.ParseAddr(nextToken)
 
 				if err1 == nil && err2 == nil && startIP.Is4() == endIP.Is4() {
-					// Cisco wildcard mask exception detection (e.g. 0.0.0.255)
+					// Cisco wildcard mask exception detection (e.g. 0.0.0.255) natively
+					// strictly converting formats into proper unified standard metrics natively.
 					if startIP.Is4() && strings.HasPrefix(nextToken, "0.") {
 						parts := strings.Split(nextToken, ".")
 						if len(parts) == 4 {
@@ -127,26 +136,38 @@ func fetchAndParse(source string, strict bool, verbose bool) ([]netip.Prefix, er
 							}
 							netmaskStr := token + "/" + strings.Join(nmParts, ".")
 							if ciscoPfx, err := shared.ParsePrefixStrict(netmaskStr, strict); err == nil {
+								if shared.IsMassivePrefix(ciscoPfx) {
+									fmt.Fprintf(os.Stderr, "[!] CRITICAL WARNING: Massive IP routing space detected in '%s': %s\n", source, ciscoPfx.String())
+								}
 								networks = append(networks, ciscoPfx)
 								i += 2 // Jump the range
 								isRange = true
 							}
 						}
 					} else {
-						// Standard IP range mathematical summarization
+						// Standard IP range mathematical summarization natively translating ranges into CIDRs directly
 						if startIP.Compare(endIP) > 0 {
 							startIP, endIP = endIP, startIP
 						}
 						summarized := shared.SummarizeRange(startIP, endIP)
-						networks = append(networks, summarized...)
+						for _, p := range summarized {
+							if shared.IsMassivePrefix(p) {
+								fmt.Fprintf(os.Stderr, "[!] CRITICAL WARNING: Massive IP routing space detected in '%s': %s\n", source, p.String())
+							}
+							networks = append(networks, p)
+						}
 						i += 2 // Jump the range
 						isRange = true
 					}
 				}
 			}
 
+			// Push standalone verified blocks natively guarding against corrupt formats
 			if !isRange {
 				if err == nil {
+					if shared.IsMassivePrefix(prefix) {
+						fmt.Fprintf(os.Stderr, "[!] CRITICAL WARNING: Massive IP routing space detected in '%s': %s\n", source, prefix.String())
+					}
 					networks = append(networks, prefix)
 				}
 				i++
@@ -157,7 +178,7 @@ func fetchAndParse(source string, strict bool, verbose bool) ([]netip.Prefix, er
 }
 
 // --------------------------------------------------------------------------
-// Firewall Matrix Formatters
+// Firewall Matrix Formatter Block Generation Algorithms
 // --------------------------------------------------------------------------
 
 func formatNetwork(p netip.Prefix, fmtType string, rangeSep string) string {
@@ -239,7 +260,7 @@ func formatAllowNetwork(p netip.Prefix, fmtType string, rangeSep string) string 
 }
 
 // --------------------------------------------------------------------------
-// Core Logic Entry
+// Core Logic Entry Point
 // --------------------------------------------------------------------------
 
 func main() {
@@ -298,7 +319,7 @@ func main() {
 	// Native flag parsing perfectly maps the stringSlice arguments natively.
 	flag.Parse()
 
-	// Strict override mapping
+	// Strict override mapping bypassing pipeline cleanly safely.
 	if opts.Help {
 		flag.Usage()
 		os.Exit(0)
@@ -321,30 +342,44 @@ func main() {
 	var rawBlocks, rawAllows []netip.Prefix
 	var muBlock, muAllow sync.Mutex
 
+	// Bounded semaphore pool cleanly limiting max active I/O workers safely.
+	// Prevents network timeouts, resource thrashing, and OS limits natively.
+	maxWorkers := 20
+	sem := make(chan struct{}, maxWorkers)
+
 	for _, source := range blocklists {
 		wg.Add(1)
 		go func(s string) {
 			defer wg.Done()
+			sem <- struct{}{} // Lock execution token exclusively
+			defer func() { <-sem }() // Clean release execution token inherently
+			
 			nets, err := fetchAndParse(s, opts.Strict, opts.Verbose)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error reading blocklist '%s': %v\n", s, err)
 				return
 			}
+			
 			muBlock.Lock()
 			rawBlocks = append(rawBlocks, nets...)
 			muBlock.Unlock()
 		}(source)
 	}
 
+	// Employ identical bounds targeting large allowlist configurations safely.
 	for _, source := range allowlists {
 		wg.Add(1)
 		go func(s string) {
 			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			
 			nets, err := fetchAndParse(s, opts.Strict, opts.Verbose)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error reading allowlist '%s': %v\n", s, err)
 				return
 			}
+			
 			muAllow.Lock()
 			rawAllows = append(rawAllows, nets...)
 			muAllow.Unlock()
@@ -354,15 +389,17 @@ func main() {
 	wg.Wait()
 
 	logMsg(opts.Verbose, "--- Stage 3: Aggregating & Collapsing Subnets ---")
+	// High speed array mapping inherently compressing identical parent paths cleanly.
 	collapsedBlocks := shared.CollapsePrefixes(rawBlocks)
 	collapsedAllows := shared.CollapsePrefixes(rawAllows)
 
-	logMsg(opts.Verbose, "--- Stage 4: Cross-Referencing & Punch-Holing ---")
+	logMsg(opts.Verbose, "--- Stage 4: Cross-Referencing & Hole Punching ---")
 
 	var filteredBlocks []netip.Prefix
 	usedAllows := make(map[netip.Prefix]bool)
 	var removedLog []string
 
+	// Type matrix exclusively tracking hole-punch exceptions inherently directly
 	type Hole struct{ allow, block netip.Prefix }
 	var punchedHoles []Hole
 
@@ -370,6 +407,7 @@ func main() {
 	statsHoles := 0
 
 	// Pass 1: Total Eclipse
+	// Instantly invalidates block nodes entirely covered by explicit allowed targets.
 	for _, block := range collapsedBlocks {
 		isAllowed := false
 		for _, allow := range collapsedAllows {
@@ -388,7 +426,7 @@ func main() {
 		}
 	}
 
-	// Pass 2: Mathematical Hole Punching internally safely bypassing allow overlaps
+	// Pass 2: Mathematical Hole Punching internally safely bypassing allow overlaps natively.
 	var finalBlocks []netip.Prefix
 	for _, block := range filteredBlocks {
 		currentPieces := []netip.Prefix{block}
@@ -405,6 +443,7 @@ func main() {
 					if !opts.SuppressComments {
 						punchedHoles = append(punchedHoles, Hole{allow, block})
 					}
+					// Sub-shard the CIDR array mapping directly excluding allowed IPs dynamically
 					nextPieces = append(nextPieces, shared.ExcludePrefix(piece, allow)...)
 				} else {
 					nextPieces = append(nextPieces, piece)
@@ -415,7 +454,7 @@ func main() {
 		finalBlocks = append(finalBlocks, currentPieces...)
 	}
 
-	// Final cleanup matrix explicitly to optimize fragmentation boundaries
+	// Final cleanup matrix explicitly compressing fractured arrays natively cleanly
 	finalBlocks = shared.CollapsePrefixes(finalBlocks)
 
 	var finalAllows []netip.Prefix
@@ -442,7 +481,8 @@ func main() {
 		outB = f
 	}
 
-	// Wrap targets with 1MB buffered writers to maximize I/O performance massively
+	// Wrap targets with 1MB buffered writers to maximize I/O performance massively.
+	// Minimizes GC allocations bypassing system interrupt loads explicitly.
 	bwBlock := bufio.NewWriterSize(outB, 1024*1024)
 	defer bwBlock.Flush()
 
@@ -461,6 +501,7 @@ func main() {
 		bwAllow.Flush()
 	}
 
+	// Prepend removed audit logs strictly to the top of configured payload blocks natively
 	if !opts.SuppressComments {
 		for _, item := range removedLog {
 			bwBlock.WriteString(item + "\n")
@@ -470,7 +511,8 @@ func main() {
 		}
 	}
 
-	// Inline stream struct to guarantee specific placement during output sequence
+	// Inline stream struct to guarantee specific placement during output sequence natively.
+	// Specifically protects exception comments routing immediately above their relevant networks.
 	type StreamItem struct {
 		isIPv4 bool
 		ip     netip.Addr
@@ -514,7 +556,7 @@ func main() {
 		if a.bits != b.bits {
 			return a.bits - b.bits
 		}
-		// Force comments (isRule=false) directly above the impacted rule
+		// Force comments (isRule=false) directly above the impacted rule reliably.
 		if a.isRule != b.isRule {
 			if !a.isRule {
 				return -1

@@ -1,8 +1,13 @@
 // ==========================================================================
 // Filename: shared/ipmath.go
-// Version: 1.2.2-20260429
-// Date: 2026-04-29 12:22 CEST
+// Version: 1.4.0-20260429
+// Date: 2026-04-29 14:45 CEST
 // Update Trail:
+//   - 1.4.0-20260429: Added IsMassivePrefix heuristic validation safely capturing 
+//                     excessively broad routing boundaries seamlessly organically.
+//   - 1.3.0-20260429: Fixed fragmented netmask boundary regression utilizing 
+//                     advanced bitwise contiguous validation. Heavily documented
+//                     collapse stack and hole-punching logic.
 //   - 1.2.2-20260429: Fixed IP subnet mask parsing bug causing fragmented bit summing.
 //                     Optimized binary counting using math/bits natively.
 //   - 1.2.0-20260429: Consolidated heavy IP and CIDR mathematical functions
@@ -25,6 +30,7 @@ import (
 
 // StripZeroPadding handles malformed IPv4 formats (e.g. 010.000.000.001)
 // natively without utilizing the slow Go regexp engine. It respects CIDR blocks.
+// This is critical for enterprise feeds which often contain legacy padded inputs.
 func StripZeroPadding(s string) string {
 	// Fast bypass: only process strings that look like IPv4 (dots, no colons)
 	if !strings.ContainsRune(s, '.') || strings.ContainsRune(s, ':') {
@@ -34,7 +40,8 @@ func StripZeroPadding(s string) string {
 	base := s
 	prefix := ""
 
-	// Preserve the prefix length (/24) if it exists
+	// Preserve the prefix length (/24) if it exists, splitting it away 
+	// before sanitizing the core octets.
 	if idx := strings.IndexByte(s, '/'); idx != -1 {
 		base = s[:idx]
 		prefix = s[idx:]
@@ -48,7 +55,7 @@ func StripZeroPadding(s string) string {
 	changed := false
 	for i, p := range parts {
 		trimmed := strings.TrimLeft(p, "0")
-		// If trimming removed everything (e.g., "000"), it was a zero.
+		// If trimming removed everything (e.g., "000"), it was legitimately a zero.
 		if trimmed == "" {
 			trimmed = "0"
 		}
@@ -66,19 +73,27 @@ func StripZeroPadding(s string) string {
 
 // ParsePrefixStrict handles both CIDR and Netmask notation safely. 
 // Truncates dirty host bits safely if strict == false natively using netip.
+// Mathematically verifies netmask contiguity using bitwise NOT constraints.
 func ParsePrefixStrict(s string, strict bool) (netip.Prefix, error) {
 	if strings.Contains(s, "/") {
 		parts := strings.Split(s, "/")
 		if len(parts) == 2 && strings.Contains(parts[1], ".") {
 			maskAddr, err := netip.ParseAddr(parts[1])
 			if err == nil && maskAddr.Is4() {
-				// Convert to contiguous uint32 block
+				// Convert to contiguous uint32 block natively
 				b := maskAddr.As4()
 				v := uint32(b[0])<<24 | uint32(b[1])<<16 | uint32(b[2])<<8 | uint32(b[3])
 				
-				// Execute high-speed binary bitwise NOT operation and count leading zeros.
+				// Validate if the netmask is strictly contiguous (no fragmented bits) natively.
+				// A valid subnet mask bitwise NOT (^v) plus one must perfectly equal a power of two.
+				inv := ^v
+				if (inv+1)&inv != 0 {
+					return netip.Prefix{}, fmt.Errorf("invalid fragmented netmask: %s", parts[1])
+				}
+
+				// Execute high-speed binary bitwise count of leading zeros.
 				// This flawlessly determines the contiguous CIDR bound of any valid Netmask.
-				maskBits := bits.LeadingZeros32(^v)
+				maskBits := bits.LeadingZeros32(inv)
 				s = parts[0] + "/" + strconv.Itoa(maskBits)
 			}
 		}
@@ -94,6 +109,7 @@ func ParsePrefixStrict(s string, strict bool) (netip.Prefix, error) {
 	}
 
 	if strict {
+		// Strict bounds enforcement: The prefix is structurally verified against its masked counterpart.
 		if pfx.Addr() != pfx.Masked().Addr() {
 			return netip.Prefix{}, fmt.Errorf("dirty host bits in prefix")
 		}
@@ -102,7 +118,19 @@ func ParsePrefixStrict(s string, strict bool) (netip.Prefix, error) {
 	return pfx.Masked(), nil
 }
 
+// IsMassivePrefix mathematically determines if a network prefix covers an exceedingly 
+// large block of addressing space dynamically accurately natively reliably.
+// Triggers exclusively on IPv4 boundaries larger than a /8 and IPv6 boundaries larger 
+// than a /48 perfectly safely seamlessly securely identifying highly uncommon configurations.
+func IsMassivePrefix(p netip.Prefix) bool {
+	if p.Addr().Is4() {
+		return p.Bits() < 8
+	}
+	return p.Bits() < 48
+}
+
 // AddrBitLen returns the absolute bit boundary based on protocol version natively.
+// Used for internal boundary loops preventing dynamic size queries.
 func AddrBitLen(a netip.Addr) int {
 	if a.Is4() {
 		return 32
@@ -111,6 +139,7 @@ func AddrBitLen(a netip.Addr) int {
 }
 
 // LastAddr calculates the broadcast address by manipulating binary arrays directly.
+// Inverts trailing host bits to 1 based on the calculated prefix boundaries.
 func LastAddr(p netip.Prefix) netip.Addr {
 	b := p.Addr().As16()
 	bitLen := AddrBitLen(p.Addr())
@@ -138,6 +167,7 @@ func MaxAddr(a netip.Addr) netip.Addr {
 }
 
 // NextAddr manually forces an iterative increment across host bit boundaries.
+// Wraps cleanly without requiring standard library IP math overhead.
 func NextAddr(a netip.Addr) netip.Addr {
 	b := a.As16()
 	for i := 15; i >= 0; i-- {
@@ -152,7 +182,8 @@ func NextAddr(a netip.Addr) netip.Addr {
 	return netip.AddrFrom16(b)
 }
 
-// SummarizeRange mathematically converts spanning IP-to-IP formats into optimal CIDRs
+// SummarizeRange mathematically converts spanning IP-to-IP formats into optimal CIDRs.
+// Traverses boundaries strictly generating prefix blocks upward until constrained.
 func SummarizeRange(start, end netip.Addr) []netip.Prefix {
 	var res []netip.Prefix
 	curr := start
@@ -163,9 +194,11 @@ func SummarizeRange(start, end netip.Addr) []netip.Prefix {
 
 		for b := maxLen; b >= 0; b-- {
 			p := netip.PrefixFrom(curr, b)
+			// Ensure mathematical supernet strictly aligns with the starting origin.
 			if p.Masked().Addr() != curr {
 				break
 			}
+			// Prevent overlapping the target termination limit.
 			if LastAddr(p).Compare(end) > 0 {
 				break
 			}
@@ -185,7 +218,8 @@ func SummarizeRange(start, end netip.Addr) []netip.Prefix {
 	return res
 }
 
-// Halve mathematically splits a supernet exactly down the middle using binary XOR
+// Halve mathematically splits a supernet exactly down the middle using binary XOR.
+// Used primarily for safely partitioning CIDRs around excluded IP holes.
 func Halve(p netip.Prefix) (netip.Prefix, netip.Prefix) {
 	bits := p.Bits()
 	a1 := p.Addr()
@@ -193,6 +227,8 @@ func Halve(p netip.Prefix) (netip.Prefix, netip.Prefix) {
 
 	byteIdx := bits / 8
 	bitIdx := 7 - (bits % 8)
+	
+	// Flip the targeted partitioning bit directly simulating a subnet divide
 	b1[byteIdx] ^= (1 << bitIdx)
 
 	var a2 netip.Addr
@@ -208,18 +244,19 @@ func Halve(p netip.Prefix) (netip.Prefix, netip.Prefix) {
 }
 
 // ExcludePrefix guarantees the protected subnet stays reachable 
-// by fracturing the supernet block directly around it
+// by fracturing the supernet block directly around it recursively using Halve.
 func ExcludePrefix(super, sub netip.Prefix) []netip.Prefix {
 	if !super.Contains(sub.Addr()) {
 		return []netip.Prefix{super}
 	}
 	if super == sub {
-		return nil
+		return nil // Complete coverage collision, wipe block.
 	}
 
 	var res []netip.Prefix
 	curr := super
 
+	// Drill logarithmically down the hierarchy until the exclusion bound is isolated.
 	for curr.Bits() < sub.Bits() {
 		h1, h2 := Halve(curr)
 		if h1.Contains(sub.Addr()) {
@@ -235,13 +272,15 @@ func ExcludePrefix(super, sub netip.Prefix) []netip.Prefix {
 
 // CollapsePrefixes natively sorts and aggressively collapses contiguous and 
 // overlapping subnets into supernets entirely in-memory using slices.SortFunc.
+// Replaces deprecated redundant stack algorithms across multiple tools.
 func CollapsePrefixes(prefixes []netip.Prefix) []netip.Prefix {
 	if len(prefixes) == 0 {
 		return nil
 	}
 
 	// High-speed sorting using modern Go 1.21+ slices.SortFunc
-	// eliminating all reflection-based overhead.
+	// eliminating all reflection-based overhead. Ensures IPv4 arrays
+	// always securely precede IPv6 limits safely.
 	slices.SortFunc(prefixes, func(a, b netip.Prefix) int {
 		if a.Addr().Is4() != b.Addr().Is4() {
 			if a.Addr().Is4() {
@@ -252,6 +291,7 @@ func CollapsePrefixes(prefixes []netip.Prefix) []netip.Prefix {
 		if cmp := a.Addr().Compare(b.Addr()); cmp != 0 {
 			return cmp
 		}
+		// Push parent supernets upwards to evaluate subsets inherently
 		return a.Bits() - b.Bits()
 	})
 
@@ -262,14 +302,16 @@ func CollapsePrefixes(prefixes []netip.Prefix) []netip.Prefix {
 		curr := prefixes[i]
 		last := stack[len(stack)-1]
 
-		// Absorb total overlap intrinsically
+		// Absorb total overlap intrinsically (Subset completely swallowed by Parent)
 		if last.Contains(curr.Addr()) {
 			continue
 		}
 
 		stack = append(stack, curr)
 
-		// Sweep backwards analyzing structural bounds to merge adjacencies natively
+		// Sweep backwards analyzing structural bounds to merge adjacencies natively.
+		// If binary siblings form a valid Supernet, pull them off the stack, append the 
+		// new super block, and recursively test backward again dynamically.
 		for len(stack) >= 2 {
 			p1 := stack[len(stack)-2]
 			p2 := stack[len(stack)-1]
@@ -277,6 +319,7 @@ func CollapsePrefixes(prefixes []netip.Prefix) []netip.Prefix {
 			if p1.Bits() == p2.Bits() {
 				super := netip.PrefixFrom(p1.Addr(), p1.Bits()-1).Masked()
 				h1, h2 := Halve(super)
+				// Ensure strict binary parity validating the subnets correctly formulate the projected parent
 				if (p1 == h1 && p2 == h2) || (p1 == h2 && p2 == h1) {
 					stack = stack[:len(stack)-2]
 					stack = append(stack, super)
