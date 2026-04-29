@@ -1,12 +1,16 @@
 /*
 ==========================================================================
 Filename: clean-dom/formatter.go
-Version: 1.9.0-20260429
-Date: 2026-04-29 15:11 CEST
+Version: 1.10.0-20260429
+Date: 2026-04-29 15:18 CEST
 Description: Handles deduplication, formatting, layout mapping, output 
              generation, comment injection, and disk writing operations.
 
 Update Trail:
+  - 1.10.0 (2026-04-29): Replaced heavy ReverseStr rune allocations with 
+                         ReverseASCII zero-copy byte mapping. Punycode 
+                         guarantees ASCII compliance safely. Drastically 
+                         reduces GC load during O(N log N) sorting.
   - 1.9.0 (2026-04-29): Resolved critical unbuffered I/O performance bottleneck
                         by wrapping outBlock and outAllow in central 1MB Writers.
   - 1.8.0 (2026-04-29): Purged AI-hallucinated adverb trails from documentation 
@@ -138,9 +142,10 @@ func buildOutputs(
 
 	// Invert strings entirely aligning domains allowing lexicographical parent/child bounds.
 	// Reversal maps arrays accurately. Example: moc.elpmaxe < moc.elpmaxe.bus
+	// ReverseASCII is strictly safe here because domains are guaranteed Punycode (ASCII) via IDNA.
 	revList := make([]string, 0, len(filteredBlocks))
 	for k := range filteredBlocks {
-		revList = append(revList, shared.ReverseStr(k))
+		revList = append(revList, shared.ReverseASCII(k))
 	}
 	sort.Strings(revList)
 
@@ -153,12 +158,12 @@ func buildOutputs(
 		if lastKept != "" && strings.HasPrefix(curr, lastKept) && len(curr) > len(lastKept) && curr[len(lastKept)] == '.' {
 			if !suppressComments {
 				// Formats the comment placing the apex first for proper alphabetical sequence alignment.
-				removedLogDedup = append(removedLogDedup, fmt.Sprintf("# %s - Redundant subdomain removed: %s", shared.ReverseStr(lastKept), shared.ReverseStr(curr)))
+				removedLogDedup = append(removedLogDedup, fmt.Sprintf("# %s - Redundant subdomain removed: %s", shared.ReverseASCII(lastKept), shared.ReverseASCII(curr)))
 			}
 			statsDeduped++
 			continue
 		}
-		finalActive[shared.ReverseStr(curr)] = struct{}{}
+		finalActive[shared.ReverseASCII(curr)] = struct{}{}
 		lastKept = curr
 	}
 
@@ -349,8 +354,9 @@ func buildOutputs(
 					cmpI = cleanI
 					cmpJ = cleanJ
 				} else {
-					cmpI = shared.ReverseStr(cleanI)
-					cmpJ = shared.ReverseStr(cleanJ)
+					// extractSortKey strips everything but the core Punycode domain. Punycode is strictly ASCII.
+					cmpI = shared.ReverseASCII(cleanI)
+					cmpJ = shared.ReverseASCII(cleanJ)
 				}
 
 				if cmpI == cmpJ {
@@ -450,9 +456,10 @@ func buildOutputs(
 					cmpI = cleanI
 					cmpJ = cleanJ
 				} else {
-					// Default standard routing algorithm perfectly handling reverses.
-					cmpI = shared.ReverseStr(cleanI)
-					cmpJ = shared.ReverseStr(cleanJ)
+					// extractSortKey strips everything but the core Punycode domain. Punycode is strictly ASCII.
+					// Default standard routing algorithm perfectly handling reverses without rune allocation overhead.
+					cmpI = shared.ReverseASCII(cleanI)
+					cmpJ = shared.ReverseASCII(cleanJ)
 				}
 
 				// Tie-breaker routing safely aligning comments to nodes perfectly.
