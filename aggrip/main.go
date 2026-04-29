@@ -1,9 +1,11 @@
 /*
 ==========================================================================
 Filename: aggrip/main.go
-Version: v0.19-20260423
-Date: 2026-04-23 11:29 CEST
+Version: v0.20-20260429
+Date: 2026-04-29 09:25 CEST
 Update Trail:
+  - v0.20-20260429: Standardized explicit --help/-h flag mappings. Audited
+                    for regressions and dead code execution paths.
   - v0.19-20260423: Standardized CLI parameters across all tools. Adopted 
                     -v for verbose, -V for version, and -h for help.
   - v0.18-20260423: Standardized CLI parameters. Implemented double-dash
@@ -39,6 +41,7 @@ var (
 	strictMode  bool
 	verbose     bool
 	showVersion bool
+	helpFlag    bool
 )
 
 // init registers the command-line flags before main() executes.
@@ -59,7 +62,10 @@ func init() {
 
 	flag.BoolVar(&showVersion, "version", false, "Show version information and exit")
 	flag.BoolVar(&showVersion, "V", false, "Short for --version")
-	
+
+	flag.BoolVar(&helpFlag, "help", false, "Show this help message")
+	flag.BoolVar(&helpFlag, "h", false, "Short for --help")
+
 	// Custom usage output for the CLI tool to clearly map short and long flags
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage of aggrip:\n\n")
@@ -88,9 +94,15 @@ func main() {
 	// Parse the command-line flags provided by the user.
 	flag.Parse()
 
+	// Intercept help flag strictly overriding default routing
+	if helpFlag {
+		flag.Usage()
+		os.Exit(0)
+	}
+
 	// Handle version output and exit early if requested.
 	if showVersion {
-		fmt.Println("aggrip Go Edition - Version v0.19-20260423")
+		fmt.Println("aggrip Go Edition - Version v0.20-20260429")
 		os.Exit(0)
 	}
 

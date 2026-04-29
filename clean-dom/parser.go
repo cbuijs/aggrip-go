@@ -1,13 +1,15 @@
 /*
 ==========================================================================
 Filename: clean-dom/parser.go
-Version: 1.1.6-20260425
-Date: 2026-04-25 13:26 CEST
+Version: 1.1.7-20260429
+Date: 2026-04-29 09:25 CEST
 Description: Handles file I/O, format detection, Adblock translation, 
              and parallel bulk ingestion of raw list payloads. Strict
              path rejection protects DNS zone integrity.
 
 Update Trail:
+  - 1.1.7 (2026-04-29): Removed dead code execution paths during punycode
+                        translation and domain validation cycles.
   - 1.1.6 (2026-04-25): Refactored fetchLines to stream payloads directly
                         via bufio.Scanner instead of allocating massive 
                         []byte blocks with io.ReadAll. Vastly improves 
@@ -235,29 +237,23 @@ func parseDomainToken(token string) parseResult {
 
 	// 5. Clean and translate base domain via IDNA natively.
 	cleanDom := normalizeDomain(domainPart)
+	if cleanDom == "" {
+		return res
+	}
+
 	punyDom := cleanDom
 	var domOrig string
 
-	if cleanDom != "" && !isASCII(cleanDom) {
+	if !isASCII(cleanDom) {
 		if p, err := idna.ToASCII(cleanDom); err == nil {
 			punyDom = p
 			domOrig = cleanDom
 		} else {
-			punyDom = ""
+			return res
 		}
 	}
 
-	if cleanDom != "" && punyDom != "" {
-		valid := !isFastIP(punyDom) && isPlausibleDomain(punyDom)
-		if !valid {
-			punyDom = ""
-		}
-	} else {
-		punyDom = ""
-	}
-
-	// If the core base domain is mathematically invalid or empty, we abort the entire rule.
-	if punyDom == "" {
+	if isFastIP(punyDom) || !isPlausibleDomain(punyDom) {
 		return res
 	}
 
@@ -290,31 +286,32 @@ func parseDomainToken(token string) parseResult {
 					}
 
 					cleanDa := normalizeDomain(da)
+					if cleanDa == "" {
+						continue
+					}
+
 					punyDa := cleanDa
 					var daOrig string
 
-					if cleanDa != "" && !isASCII(cleanDa) {
+					if !isASCII(cleanDa) {
 						if p, err := idna.ToASCII(cleanDa); err == nil {
 							punyDa = p
 							daOrig = cleanDa
 						} else {
-							punyDa = ""
+							continue
 						}
 					}
 
-					if cleanDa != "" && punyDa != "" {
-						valid := !isFastIP(punyDa) && isPlausibleDomain(punyDa)
-						if valid {
-							// Subdomain Integrity Check: Exclusions MUST fall beneath the base domain.
-							// For example, if blocking 'domain.com', allowlisting 'other.com' via denyallow is invalid.
-							if punyDa == punyDom || strings.HasSuffix(punyDa, "."+punyDom) {
-								res.DenyAllow = append(res.DenyAllow, punyDa)
-								if daOrig != "" {
-									res.DenyAllowUnicodeMap[punyDa] = daOrig
-								}
-							} else {
-								logMsg(fmt.Sprintf("Warning: Ignored $denyallow entry '%s' as it is not a valid subdomain of base '%s' in rule '%s'", punyDa, punyDom, origToken))
+					if !isFastIP(punyDa) && isPlausibleDomain(punyDa) {
+						// Subdomain Integrity Check: Exclusions MUST fall beneath the base domain.
+						// For example, if blocking 'domain.com', allowlisting 'other.com' via denyallow is invalid.
+						if punyDa == punyDom || strings.HasSuffix(punyDa, "."+punyDom) {
+							res.DenyAllow = append(res.DenyAllow, punyDa)
+							if daOrig != "" {
+								res.DenyAllowUnicodeMap[punyDa] = daOrig
 							}
+						} else {
+							logMsg(fmt.Sprintf("Warning: Ignored $denyallow entry '%s' as it is not a valid subdomain of base '%s' in rule '%s'", punyDa, punyDom, origToken))
 						}
 					}
 				}
@@ -479,25 +476,26 @@ func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 				}
 
 				dom := normalizeDomain(rawDom)
+				if dom == "" {
+					continue
+				}
+
 				punyDom := dom
 				var domOrig string
 
-				if dom != "" && !isASCII(dom) {
+				if !isASCII(dom) {
 					if p, err := idna.ToASCII(dom); err == nil {
 						punyDom = p
 						domOrig = dom
 					} else {
-						punyDom = ""
+						continue
 					}
 				}
 
-				if dom != "" && punyDom != "" {
-					valid := !isFastIP(punyDom) && isPlausibleDomain(punyDom)
-					if valid {
-						result.Blocks = append(result.Blocks, punyDom)
-						if domOrig != "" {
-							result.Conversions = append(result.Conversions, fmt.Sprintf("# %s - Converted from Unicode: %s", punyDom, domOrig))
-						}
+				if !isFastIP(punyDom) && isPlausibleDomain(punyDom) {
+					result.Blocks = append(result.Blocks, punyDom)
+					if domOrig != "" {
+						result.Conversions = append(result.Conversions, fmt.Sprintf("# %s - Converted from Unicode: %s", punyDom, domOrig))
 					}
 				}
 			}

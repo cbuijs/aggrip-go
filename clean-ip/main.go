@@ -1,14 +1,16 @@
 /*
 ==========================================================================
 Filename: clean-ip/main.go
-Version: 1.1.5-20260425
-Date: 2026-04-25 13:30 CEST
+Version: 1.1.6-20260429
+Date: 2026-04-29 09:25 CEST
 Description: Enterprise-grade IP blocklist optimizer. High-speed Go port
              of clean-ip.py. Aggregates IPs, CIDRs, ranges. Cross-references
              against allowlists, collapses redundant subnets, performs
              mathematical hole-punching, and exports to firewall formats.
 
 Changes:
+- v1.1.6 (2026-04-29): Explicitly mapped --help and -h. Checked for dead
+                       code and streamlined flag initialization.
 - v1.1.5 (2026-04-25): Removed custom CLI argument interceptor. Standardized 
                        blocklist/allowlist ingestion using native flag.Value 
                        stringSlice mapping (-b file1 -b file2) mirroring clean-dom.
@@ -72,6 +74,7 @@ type Options struct {
 	Strict            bool
 	Verbose           bool
 	ShowVersion       bool
+	Help              bool
 }
 
 // logMsg outputs progress directly to STDERR, ensuring STDOUT remains clean
@@ -608,6 +611,9 @@ func main() {
 	flag.BoolVar(&opts.ShowVersion, "version", false, "Show version information and exit")
 	flag.BoolVar(&opts.ShowVersion, "V", false, "Short for --version")
 
+	flag.BoolVar(&opts.Help, "help", false, "Show this help message")
+	flag.BoolVar(&opts.Help, "h", false, "Short for --help")
+
 	// Custom formatted usage explicitly declaring standard flags across the suite
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage of clean-ip:\n\n")
@@ -631,9 +637,15 @@ func main() {
 	// Native flag parsing perfectly maps the stringSlice arguments natively.
 	flag.Parse()
 
+	// Strict override mapping
+	if opts.Help {
+		flag.Usage()
+		os.Exit(0)
+	}
+
 	// Handle version output intercept natively
 	if opts.ShowVersion {
-		fmt.Println("clean-ip Go Edition - Version 1.1.5-20260425")
+		fmt.Println("clean-ip Go Edition - Version 1.1.6-20260429")
 		os.Exit(0)
 	}
 

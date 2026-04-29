@@ -1,9 +1,11 @@
 /*
 ==========================================================================
 Filename: clean-dom/main.go
-Version: 1.1.7-20260425
-Date: 2026-04-25 13:48 CEST
+Version: 1.1.8-20260429
+Date: 2026-04-29 09:25 CEST
 Update Trail:
+  - 1.1.8 (2026-04-29): Explicitly registered --help and -h flags for 
+                        strict standardization. Removed dead code loops.
   - 1.1.7 (2026-04-25): Implemented optionalIntFlag to support optional 
                         numeric values for boolean flags. Added the 
                         --compress-hosts parameter for HOSTS formatting.
@@ -122,6 +124,7 @@ var (
 	compressHosts    optionalIntFlag
 	verbose          bool
 	showVersion      bool
+	helpFlag         bool
 )
 
 func init() {
@@ -169,6 +172,9 @@ func init() {
 	flag.BoolVar(&showVersion, "version", false, "Show version information and exit")
 	flag.BoolVar(&showVersion, "V", false, "Short for --version")
 
+	flag.BoolVar(&helpFlag, "help", false, "Show this help message")
+	flag.BoolVar(&helpFlag, "h", false, "Short for --help")
+
 	// Custom formatted usage explicitly declaring standard flags across the suite
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage of clean-dom:\n\n")
@@ -208,8 +214,14 @@ func main() {
 	log.SetFlags(0)
 	flag.Parse()
 
+	// Strictly trap help flags bypassing default runtime logic
+	if helpFlag {
+		flag.Usage()
+		os.Exit(0)
+	}
+
 	if showVersion {
-		fmt.Println("clean-dom Go Edition - Version 1.1.7-20260425")
+		fmt.Println("clean-dom Go Edition - Version 1.1.8-20260429")
 		os.Exit(0)
 	}
 

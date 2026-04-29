@@ -1,8 +1,8 @@
 /*
 ==========================================================================
 Filename: undup/main.go
-Version: v0.20-20260425
-Date: 2026-04-25 13:26 CEST
+Version: v0.21-20260429
+Date: 2026-04-29 09:25 CEST
 Description: Blazing fast binary-level domain deduplicator in Golang. 
              Removes redundant subdomains when parent domains exist in 
              the feed. Prioritizes low-latency and high-performance via
@@ -10,6 +10,7 @@ Description: Blazing fast binary-level domain deduplicator in Golang.
              Supports optional less-strict validation allowing '_' and '*'.
 
 Changes/Fixes:
+- v0.21 (2026-04-29): Explicitly mapped --help and -h flags natively.
 - v0.20 (2026-04-25): Major memory optimization. Replaced io.ReadAll and 
                       bytes.Split with a high-performance streaming bufio.Scanner.
                       Drops memory consumption by >50% on large datasets by 
@@ -53,6 +54,7 @@ var (
 	lessStrict  bool
 	verbose     bool
 	showVersion bool
+	helpFlag    bool
 )
 
 func init() {
@@ -71,6 +73,9 @@ func init() {
 
 	flag.BoolVar(&showVersion, "version", false, "Show version information and exit")
 	flag.BoolVar(&showVersion, "V", false, "Short for --version")
+
+	flag.BoolVar(&helpFlag, "help", false, "Show this help message")
+	flag.BoolVar(&helpFlag, "h", false, "Short for --help")
 
 	// Customize the usage output to cleanly reflect dual-flag suite standard.
 	// Hardened to explicitly demonstrate -h and --help natively.
@@ -102,9 +107,15 @@ func main() {
 	// ----------------------------------------------------------------------
 	flag.Parse()
 
+	// Intercept help flag securely bypassing internal logic
+	if helpFlag {
+		flag.Usage()
+		os.Exit(0)
+	}
+
 	// Hardened trap: display version and exit silently.
 	if showVersion {
-		fmt.Println("undup Go Edition - Version v0.20-20260425")
+		fmt.Println("undup Go Edition - Version v0.21-20260429")
 		os.Exit(0)
 	}
 
