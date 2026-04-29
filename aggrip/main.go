@@ -1,9 +1,10 @@
 /*
 ==========================================================================
 Filename: aggrip/main.go
-Version: v0.20-20260429
-Date: 2026-04-29 09:25 CEST
+Version: v0.22-20260429
+Date: 2026-04-29 10:48 CEST
 Update Trail:
+  - v0.22-20260429: Refactored to utilize centralized shared library (aggrip-go/shared).
   - v0.20-20260429: Standardized explicit --help/-h flag mappings. Audited
                     for regressions and dead code execution paths.
   - v0.19-20260423: Standardized CLI parameters across all tools. Adopted 
@@ -32,6 +33,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"aggrip-go/shared"
 )
 
 // Define global variables for command-line flags.
@@ -81,12 +84,9 @@ func init() {
 	}
 }
 
-// logMsg prints diagnostic messages to STDERR if verbose mode is active.
-// Keeps standard output completely clean for pipeline chaining.
+// logMsg acts as a thin wrapper routing diagnostics to the centralized shared logger.
 func logMsg(msg string, args ...any) {
-	if verbose {
-		fmt.Fprintf(os.Stderr, "[*] "+msg+"\n", args...)
-	}
+	shared.LogMsg(verbose, msg, args...)
 }
 
 // main is the primary entry point for the pipeline application.
@@ -102,7 +102,7 @@ func main() {
 
 	// Handle version output and exit early if requested.
 	if showVersion {
-		fmt.Println("aggrip Go Edition - Version v0.20-20260429")
+		fmt.Println("aggrip Go Edition - Version v0.22-20260429")
 		os.Exit(0)
 	}
 

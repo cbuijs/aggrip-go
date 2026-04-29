@@ -1,13 +1,15 @@
 /*
 ==========================================================================
 Filename: clean-dom/validator.go
-Version: 1.1.2-20260424
-Date: 2026-04-24 20:09 CEST
+Version: 1.1.3-20260429
+Date: 2026-04-29 10:48 CEST
 Description: Handles strict and lenient structural boundaries, RFC 
              enforcement, embedded TLD dictionary mapping, and 
              low-level string validation protocols.
 
 Update Trail:
+  - 1.1.3 (2026-04-29): Integrated central shared library logic to replace
+                        duplicated heuristic validation bounds natively.
   - 1.1.2 (2026-04-24): Added HNS dictionary caching and IsHNSTLD exported 
                         method to safely validate trailing slashes for 
                         decentralized domains.
@@ -21,7 +23,6 @@ package main
 
 import (
 	"fmt"
-	"net/netip"
 	"strings"
 )
 
@@ -101,33 +102,6 @@ func IsHNSTLD(tld string) bool {
 	}
 	_, exists := hnsTLDsMap[strings.ToLower(tld)]
 	return exists
-}
-
-// isFastIP runs a rapid heuristic bypass checking if a token resembles an IP.
-func isFastIP(token string) bool {
-	if len(token) == 0 {
-		return false
-	}
-	c := token[0]
-	if (c >= '0' && c <= '9') || c == ':' {
-		_, err := netip.ParseAddr(token)
-		return err == nil
-	}
-	return false
-}
-
-// isPlausibleDomain is a high-speed pre-ingestion check to silently drop obvious 
-// non-domain garbage (like URLs, regexes, paths from Adblock lists) before they 
-// pollute memory or trigger structural validation logs natively.
-func isPlausibleDomain(domain string) bool {
-	for i := 0; i < len(domain); i++ {
-		c := domain[i]
-		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '.' || c == '_' || c == '*' {
-			continue
-		}
-		return false
-	}
-	return true
 }
 
 // ValidateDomain unifies structural bound checking, strict RFC enforcement, and 
@@ -223,15 +197,6 @@ func getParents(domain string) []string {
 		domain = domain[idx+1:]
 	}
 	return parents
-}
-
-// reverseStr performs a rapid rune-level reverse string operation for O(N log N) deduplication sorting.
-func reverseStr(s string) string {
-	r := []rune(s)
-	for i, j := 0, len(r)-1; i < j; i, j = i+1, j-1 {
-		r[i], r[j] = r[j], r[i]
-	}
-	return string(r)
 }
 
 // extractDomainForSort strictly pulls the root domain from a string array index safely handling comments

@@ -1,12 +1,14 @@
 /*
 ==========================================================================
 Filename: clean-dom/formatter.go
-Version: 1.1.11-20260425
-Date: 2026-04-25 13:48 CEST
+Version: 1.1.12-20260429
+Date: 2026-04-29 10:48 CEST
 Description: Handles deduplication, formatting, layout mapping, output 
              generation, comment injection, and disk writing operations.
 
 Update Trail:
+  - 1.1.12 (2026-04-29): Refactored sorting to utilize `aggrip-go/shared`
+                         centralized ReverseStr helper directly.
   - 1.1.11 (2026-04-25): Implemented high-speed HOSTS compression routing 
                          via capacity-bound slice buffers. Natively groups
                          domains per IP address eliminating output bloat.
@@ -41,6 +43,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"aggrip-go/shared"
 )
 
 // buildOutputs executes deduplication, formatting, comment mapping, and generates target files natively.
@@ -58,8 +62,8 @@ func buildOutputs(
 		passName = "(Top-N)"
 	}
 	
-	logMsg(fmt.Sprintf("--- Stage 4: Preparing for Deduplication %s ---", passName))
-	logMsg(fmt.Sprintf("Sorting %d domains by depth...", len(blockDomains)))
+	logMsg("--- Stage 4: Preparing for Deduplication %s ---", passName)
+	logMsg("Sorting %d domains by depth...", len(blockDomains))
 
 	// Sort blockDomains by depth (dot count) descending to properly sequence subdomains
 	sort.Slice(blockDomains, func(i, j int) bool {
@@ -70,7 +74,7 @@ func buildOutputs(
 		os.MkdirAll(allDir, 0755)
 	}
 	
-	logMsg(fmt.Sprintf("--- Stage 5: Processing & Optimizing %s ---", passName))
+	logMsg("--- Stage 5: Processing & Optimizing %s ---", passName)
 
 	filteredBlocks := make(map[string]struct{})
 	var removedLogGeneral, removedLogDedup, removedLogParentBlocked, removedLogUnusedAllows, removedLogInvalids []string
@@ -138,11 +142,11 @@ func buildOutputs(
 		filteredBlocks[domain] = struct{}{}
 	}
 
-	logMsg(fmt.Sprintf("Executing O(N log N) subdomain deduplication %s...", passName))
+	logMsg("Executing O(N log N) subdomain deduplication %s...", passName)
 
 	revList := make([]string, 0, len(filteredBlocks))
 	for k := range filteredBlocks {
-		revList = append(revList, reverseStr(k))
+		revList = append(revList, shared.ReverseStr(k))
 	}
 	sort.Strings(revList)
 
@@ -153,16 +157,16 @@ func buildOutputs(
 		if lastKept != "" && strings.HasPrefix(curr, lastKept) && len(curr) > len(lastKept) && curr[len(lastKept)] == '.' {
 			if !suppressComments {
 				// Formats the comment placing the apex natively first for proper alphabetical sequence alignment
-				removedLogDedup = append(removedLogDedup, fmt.Sprintf("# %s - Redundant subdomain removed: %s", reverseStr(lastKept), reverseStr(curr)))
+				removedLogDedup = append(removedLogDedup, fmt.Sprintf("# %s - Redundant subdomain removed: %s", shared.ReverseStr(lastKept), shared.ReverseStr(curr)))
 			}
 			statsDeduped++
 			continue
 		}
-		finalActive[reverseStr(curr)] = struct{}{}
+		finalActive[shared.ReverseStr(curr)] = struct{}{}
 		lastKept = curr
 	}
 
-	logMsg(fmt.Sprintf("--- Stage 6: Generating Outputs %s ---", passName))
+	logMsg("--- Stage 6: Generating Outputs %s ---", passName)
 
 	adblockRules := make(map[string][]string)
 	var standaloneAllows []string
@@ -343,8 +347,8 @@ func buildOutputs(
 					cmpI = cleanI
 					cmpJ = cleanJ
 				} else {
-					cmpI = reverseStr(cleanI)
-					cmpJ = reverseStr(cleanJ)
+					cmpI = shared.ReverseStr(cleanI)
+					cmpJ = shared.ReverseStr(cleanJ)
 				}
 
 				if cmpI == cmpJ {
@@ -445,8 +449,8 @@ func buildOutputs(
 					cmpJ = cleanJ
 				} else {
 					// Default standard routing algorithm natively
-					cmpI = reverseStr(cleanI)
-					cmpJ = reverseStr(cleanJ)
+					cmpI = shared.ReverseStr(cleanI)
+					cmpJ = shared.ReverseStr(cleanJ)
 				}
 
 				// Tie-breaker routing securely aligning comments to nodes
@@ -544,22 +548,22 @@ func buildOutputs(
 		if optimizeAllow {
 			statsUnusedAllows = len(validAllowDomainsCounter(allowDomains, lessStrict, allowTLD)) - len(usedAllows)
 		}
-		logMsg(fmt.Sprintf("========== OPTIMIZATION STATS %s ==========", passName))
-		logMsg(fmt.Sprintf("Total Blocklist Domains Read: %d", len(blockDomains)))
-		logMsg(fmt.Sprintf("Removed (Invalid/Unregistered): %d", statsInvalidStruct))
-		logMsg(fmt.Sprintf("Removed (Allowlisted)       : %d", statsAllowlisted))
-		logMsg(fmt.Sprintf("Removed (Not in Top-N)      : %d", statsTopN))
-		logMsg(fmt.Sprintf("Removed (Sub-domain Dedup)  : %d", statsDeduped))
+		logMsg("========== OPTIMIZATION STATS %s ==========", passName)
+		logMsg("Total Blocklist Domains Read: %d", len(blockDomains))
+		logMsg("Removed (Invalid/Unregistered): %d", statsInvalidStruct)
+		logMsg("Removed (Allowlisted)       : %d", statsAllowlisted)
+		logMsg("Removed (Not in Top-N)      : %d", statsTopN)
+		logMsg("Removed (Sub-domain Dedup)  : %d", statsDeduped)
 		if optimizeAllow {
-			logMsg(fmt.Sprintf("Dropped (Unused Allows)     : %d", statsUnusedAllows))
+			logMsg("Dropped (Unused Allows)     : %d", statsUnusedAllows)
 		}
 		if outputFmt != "hosts" {
-			logMsg(fmt.Sprintf("Ignored Allows (Blocked)    : %d", statsAllowIgnored))
+			logMsg("Ignored Allows (Blocked)    : %d", statsAllowIgnored)
 		}
 		logMsg("----------------------------------------------------")
-		logMsg(fmt.Sprintf("Final Active Domains        : %d (%d in HOSTS format)", len(finalActive), len(filteredBlocks)))
+		logMsg("Final Active Domains        : %d (%d in HOSTS format)", len(finalActive), len(filteredBlocks))
 		if outputFmt == "all" || outAllowlist != "" {
-			logMsg(fmt.Sprintf("Exported Allowlist Domains  : %d", len(finalAllows)))
+			logMsg("Exported Allowlist Domains  : %d", len(finalAllows))
 		}
 		logMsg("====================================================")
 	}

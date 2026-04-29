@@ -1,8 +1,8 @@
 /*
 ==========================================================================
 Filename: undup/main.go
-Version: v0.21-20260429
-Date: 2026-04-29 09:25 CEST
+Version: v0.22-20260429
+Date: 2026-04-29 10:48 CEST
 Description: Blazing fast binary-level domain deduplicator in Golang. 
              Removes redundant subdomains when parent domains exist in 
              the feed. Prioritizes low-latency and high-performance via
@@ -10,6 +10,9 @@ Description: Blazing fast binary-level domain deduplicator in Golang.
              Supports optional less-strict validation allowing '_' and '*'.
 
 Changes/Fixes:
+- v0.22 (2026-04-29): Refactored to utilize centralized shared library 
+                      (aggrip-go/shared). Abstracted duplicated validation 
+                      heuristics natively.
 - v0.21 (2026-04-29): Explicitly mapped --help and -h flags natively.
 - v0.20 (2026-04-25): Major memory optimization. Replaced io.ReadAll and 
                       bytes.Split with a high-performance streaming bufio.Scanner.
@@ -39,6 +42,8 @@ import (
 	"runtime"
 	"sort"
 	"sync"
+
+	"aggrip-go/shared"
 )
 
 // Global constants for fast-path stripping and validation boundaries.
@@ -93,12 +98,9 @@ func init() {
 	}
 }
 
-// logMsg prints diagnostic messages to STDERR if verbose mode is active natively.
-// Ensures STDOUT is kept perfectly clean for UNIX piping streams.
+// logMsg acts as a thin wrapper routing diagnostics to the centralized shared logger.
 func logMsg(msg string, args ...any) {
-	if verbose {
-		fmt.Fprintf(os.Stderr, "[*] "+msg+"\n", args...)
-	}
+	shared.LogMsg(verbose, msg, args...)
 }
 
 func main() {
@@ -115,7 +117,7 @@ func main() {
 
 	// Hardened trap: display version and exit silently.
 	if showVersion {
-		fmt.Println("undup Go Edition - Version v0.21-20260429")
+		fmt.Println("undup Go Edition - Version v0.22-20260429")
 		os.Exit(0)
 	}
 
@@ -183,7 +185,7 @@ func main() {
 		}
 
 		// Inline structural validation to bypass slow regular expressions safely.
-		if isValidDomain(cleaned, lessStrict) {
+		if shared.IsValidDomain(cleaned, lessStrict) {
 			// Convert to string safely only after passing all checks directly.
 			// The map inherently handles the first phase of exact-match deduplication.
 			uniqueDomains[string(cleaned)] = struct{}{}
@@ -233,7 +235,7 @@ func main() {
 		go func(s, e int) {
 			defer wg.Done()
 			for j := s; j < e; j++ {
-				revList[j] = reverseASCII(revList[j])
+				revList[j] = shared.ReverseASCII(revList[j])
 			}
 		}(start, end)
 	}
@@ -271,7 +273,7 @@ func main() {
 		}
 
 		// Re-reverse the string back to normal and write to the output buffer directly.
-		outWriter.WriteString(reverseASCII(curr))
+		outWriter.WriteString(shared.ReverseASCII(curr))
 		outWriter.WriteByte('\n')
 
 		lastKept = curr
@@ -279,36 +281,5 @@ func main() {
 
 	logMsg("Deduplication complete. Dropped %d redundant subdomains natively.", droppedCount)
 	logMsg("Exported %d clean parent apex domains.", len(uniqueDomains)-droppedCount)
-}
-
-// --------------------------------------------------------------------------
-// Helper Functions
-// --------------------------------------------------------------------------
-
-// isValidDomain performs high-speed byte-level validation without regex overhead cleanly.
-// Strictly restricts payloads to alphanumeric, hyphens, and periods.
-func isValidDomain(b []byte, lessStrict bool) bool {
-	for i := 0; i < len(b); i++ {
-		c := b[i]
-		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '-' {
-			continue
-		}
-		if lessStrict && (c == '_' || c == '*') {
-			continue
-		}
-		return false
-	}
-	return true
-}
-
-// reverseASCII performs a high-speed reverse of an ASCII string safely.
-// Note: Domain payloads are strictly ASCII enforced by the isValidDomain logic intrinsically.
-// Bypasses the overhead of full rune translation for pure network domains.
-func reverseASCII(s string) string {
-	b := make([]byte, len(s))
-	for i := 0; i < len(s); i++ {
-		b[len(s)-1-i] = s[i]
-	}
-	return string(b)
 }
 

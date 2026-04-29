@@ -1,9 +1,10 @@
 /*
 ==========================================================================
 Filename: clean-dom/main.go
-Version: 1.1.8-20260429
-Date: 2026-04-29 09:25 CEST
+Version: 1.1.9-20260429
+Date: 2026-04-29 10:48 CEST
 Update Trail:
+  - 1.1.9 (2026-04-29): Refactored to utilize centralized shared library (aggrip-go/shared).
   - 1.1.8 (2026-04-29): Explicitly registered --help and -h flags for 
                         strict standardization. Removed dead code loops.
   - 1.1.7 (2026-04-25): Implemented optionalIntFlag to support optional 
@@ -44,20 +45,10 @@ import (
 	"log"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
+
+	"aggrip-go/shared"
 )
-
-// stringSlice implements flag.Value to allow multiple CLI arguments natively.
-type stringSlice []string
-
-func (s *stringSlice) String() string {
-	return strings.Join(*s, " ")
-}
-func (s *stringSlice) Set(value string) error {
-	*s = append(*s, value)
-	return nil
-}
 
 // optionalIntFlag implements a custom flag construct allowing a parameter
 // to act as both a boolean toggle and an integer receiver cleanly.
@@ -106,9 +97,9 @@ func (i *optionalIntFlag) IsBoolFlag() bool {
 
 // Global Flags defining core operations and behaviors across all files in main package
 var (
-	blocklists       stringSlice
-	allowlists       stringSlice
-	topnlists        stringSlice
+	blocklists       shared.StringSlice
+	allowlists       shared.StringSlice
+	topnlists        shared.StringSlice
 	inputFormat      string
 	outputFmt        string
 	allDir           string
@@ -204,10 +195,9 @@ func init() {
 }
 
 // logMsg prints messages to STDERR if verbose mode is enabled. Keeps STDOUT clear.
-func logMsg(msg string) {
-	if verbose {
-		log.Printf("[*] %s\n", msg)
-	}
+// Thin wrapper forwarding the call to the central shared module natively.
+func logMsg(msg string, args ...any) {
+	shared.LogMsg(verbose, msg, args...)
 }
 
 func main() {
@@ -221,7 +211,7 @@ func main() {
 	}
 
 	if showVersion {
-		fmt.Println("clean-dom Go Edition - Version 1.1.8-20260429")
+		fmt.Println("clean-dom Go Edition - Version 1.1.9-20260429")
 		os.Exit(0)
 	}
 

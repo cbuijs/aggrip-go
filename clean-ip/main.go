@@ -1,14 +1,17 @@
 /*
 ==========================================================================
 Filename: clean-ip/main.go
-Version: 1.1.6-20260429
-Date: 2026-04-29 09:25 CEST
+Version: 1.1.7-20260429
+Date: 2026-04-29 10:48 CEST
 Description: Enterprise-grade IP blocklist optimizer. High-speed Go port
              of clean-ip.py. Aggregates IPs, CIDRs, ranges. Cross-references
              against allowlists, collapses redundant subnets, performs
              mathematical hole-punching, and exports to firewall formats.
 
 Changes:
+- v1.1.7 (2026-04-29): Refactored to utilize centralized shared library 
+                       (aggrip-go/shared). Streamlined duplicated CLI, logger,
+                       and heuristic parsing bounds natively.
 - v1.1.6 (2026-04-29): Explicitly mapped --help and -h. Checked for dead
                        code and streamlined flag initialization.
 - v1.1.5 (2026-04-25): Removed custom CLI argument interceptor. Standardized 
@@ -41,27 +44,15 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net/http"
 	"net/netip"
 	"os"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
-	"time"
+
+	"aggrip-go/shared"
 )
-
-// stringSlice implements flag.Value to allow multiple CLI arguments natively.
-// Replacing the custom pre-parser to match clean-dom standard behavior.
-type stringSlice []string
-
-func (s *stringSlice) String() string {
-	return strings.Join(*s, " ")
-}
-func (s *stringSlice) Set(value string) error {
-	*s = append(*s, value)
-	return nil
-}
 
 // Options holds CLI configuration mapping directly to standard execution parameters
 type Options struct {
@@ -77,12 +68,9 @@ type Options struct {
 	Help              bool
 }
 
-// logMsg outputs progress directly to STDERR, ensuring STDOUT remains clean
-// for pipeline piping if the user requests standard output targeting.
+// logMsg acts as a thin wrapper routing diagnostics to the centralized shared logger.
 func logMsg(verbose bool, msg string, args ...any) {
-	if verbose {
-		fmt.Fprintf(os.Stderr, "[*] "+msg+"\n", args...)
-	}
+	shared.LogMsg(verbose, msg, args...)
 }
 
 // --------------------------------------------------------------------------
@@ -130,49 +118,19 @@ func stripZeroPadding(s string) string {
 	return strings.Join(parts, ".") + prefix
 }
 
-// isFastIP runs a highly optimized heuristic to skip pure text blocks
-// preventing the system from running expensive IP-parsing exceptions.
-func isFastIP(token string) bool {
-	if len(token) == 0 {
-		return false
-	}
-	c := token[0]
-	return (c >= '0' && c <= '9') || c == ':' || c == '-'
-}
-
 // fetchAndParse streams payloads directly from disk or HTTP into memory.
-// Optimized: Processes line-by-line avoiding giant []string array allocations.
+// Optimized: Processes line-by-line using shared.FetchStream avoiding allocations.
 func fetchAndParse(source string, strict bool, verbose bool) ([]netip.Prefix, error) {
 	logMsg(verbose, "Loading data from: %s", source)
 	
-	var reader io.Reader
-	var closeFunc func() error
-
-	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
-		client := &http.Client{Timeout: 15 * time.Second}
-		req, err := http.NewRequest("GET", source, nil)
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("User-Agent", "Mozilla/5.0")
-		resp, err := client.Do(req)
-		if err != nil {
-			return nil, err
-		}
-		reader = resp.Body
-		closeFunc = resp.Body.Close
-	} else {
-		f, err := os.Open(source)
-		if err != nil {
-			return nil, err
-		}
-		reader = f
-		closeFunc = f.Close
+	stream, err := shared.FetchStream(source)
+	if err != nil {
+		return nil, err
 	}
-	defer closeFunc()
+	defer stream.Close()
 
 	var networks []netip.Prefix
-	scanner := bufio.NewScanner(reader)
+	scanner := bufio.NewScanner(stream)
 	
 	// Pre-allocate a 1MB buffer for processing massive blocklists with giant lines
 	buf := make([]byte, 0, 64*1024)
@@ -202,7 +160,7 @@ func fetchAndParse(source string, strict bool, verbose bool) ([]netip.Prefix, er
 		for i := 0; i < len(tokens); {
 			token := stripZeroPadding(tokens[i])
 
-			if !isFastIP(token) {
+			if !shared.IsIPHeuristic(token) {
 				i++
 				continue
 			}
@@ -583,8 +541,8 @@ func formatAllowNetwork(p netip.Prefix, fmtType string, rangeSep string) string 
 
 func main() {
 	var opts Options
-	var blocklists stringSlice
-	var allowlists stringSlice
+	var blocklists shared.StringSlice
+	var allowlists shared.StringSlice
 
 	// Register variables for double-dash configurations. Standardized short formats included.
 	flag.Var(&blocklists, "blocklist", "Path(s) or URL(s) to the IP blocklist(s) (can specify multiple times)")
@@ -645,7 +603,7 @@ func main() {
 
 	// Handle version output intercept natively
 	if opts.ShowVersion {
-		fmt.Println("clean-ip Go Edition - Version 1.1.6-20260429")
+		fmt.Println("clean-ip Go Edition - Version 1.1.7-20260429")
 		os.Exit(0)
 	}
 

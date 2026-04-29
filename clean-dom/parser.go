@@ -1,13 +1,15 @@
 /*
 ==========================================================================
 Filename: clean-dom/parser.go
-Version: 1.1.7-20260429
-Date: 2026-04-29 09:25 CEST
+Version: 1.1.8-20260429
+Date: 2026-04-29 10:48 CEST
 Description: Handles file I/O, format detection, Adblock translation, 
              and parallel bulk ingestion of raw list payloads. Strict
              path rejection protects DNS zone integrity.
 
 Update Trail:
+  - 1.1.8 (2026-04-29): Integrated aggrip-go/shared library to centralize
+                        HTTP/file streams and heuristic fast-paths.
   - 1.1.7 (2026-04-29): Removed dead code execution paths during punycode
                         translation and domain validation cycles.
   - 1.1.6 (2026-04-25): Refactored fetchLines to stream payloads directly
@@ -36,16 +38,14 @@ import (
 	"bufio"
 	"crypto/sha256"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 	"unicode"
 
 	"golang.org/x/net/idna"
+	"aggrip-go/shared"
 )
 
 // ParsedLists contains cross-referenced parsed domains globally mapped.
@@ -103,7 +103,7 @@ func detectFormat(lines []string) string {
 		}
 		firstToken := parts[0]
 
-		if isFastIP(firstToken) {
+		if shared.IsFastIPStrict(firstToken) {
 			counts["hosts"]++
 		} else if strings.HasPrefix(firstToken, "@@") || strings.HasPrefix(firstToken, "||") || strings.Contains(firstToken, "^") || strings.Contains(firstToken, "$") || strings.HasPrefix(firstToken, "/") {
 			counts["adblock"]++
@@ -253,7 +253,7 @@ func parseDomainToken(token string) parseResult {
 		}
 	}
 
-	if isFastIP(punyDom) || !isPlausibleDomain(punyDom) {
+	if shared.IsFastIPStrict(punyDom) || !shared.IsPlausibleDomain(punyDom) {
 		return res
 	}
 
@@ -268,7 +268,7 @@ func parseDomainToken(token string) parseResult {
 				
 				// Logical Collision Check: Discard $denyallow parameters if the base rule is an explicit allowlist rule.
 				if res.IsAllow {
-					logMsg(fmt.Sprintf("Warning: Ignored contradictory $denyallow modifier in explicit allowlist rule: '%s'", origToken))
+					logMsg("Warning: Ignored contradictory $denyallow modifier in explicit allowlist rule: '%s'", origToken)
 					continue
 				}
 
@@ -280,7 +280,7 @@ func parseDomainToken(token string) parseResult {
 					if strings.Contains(da, "/") {
 						da = stripHnsSlash(da)
 						if da == "" {
-							logMsg(fmt.Sprintf("Warning: Ignored $denyallow entry as it appears to be an invalid path/URL in rule '%s'", origToken))
+							logMsg("Warning: Ignored $denyallow entry as it appears to be an invalid path/URL in rule '%s'", origToken)
 							continue
 						}
 					}
@@ -302,7 +302,7 @@ func parseDomainToken(token string) parseResult {
 						}
 					}
 
-					if !isFastIP(punyDa) && isPlausibleDomain(punyDa) {
+					if !shared.IsFastIPStrict(punyDa) && shared.IsPlausibleDomain(punyDa) {
 						// Subdomain Integrity Check: Exclusions MUST fall beneath the base domain.
 						// For example, if blocking 'domain.com', allowlisting 'other.com' via denyallow is invalid.
 						if punyDa == punyDom || strings.HasSuffix(punyDa, "."+punyDom) {
@@ -311,7 +311,7 @@ func parseDomainToken(token string) parseResult {
 								res.DenyAllowUnicodeMap[punyDa] = daOrig
 							}
 						} else {
-							logMsg(fmt.Sprintf("Warning: Ignored $denyallow entry '%s' as it is not a valid subdomain of base '%s' in rule '%s'", punyDa, punyDom, origToken))
+							logMsg("Warning: Ignored $denyallow entry '%s' as it is not a valid subdomain of base '%s' in rule '%s'", punyDa, punyDom, origToken)
 						}
 					}
 				}
@@ -327,37 +327,15 @@ func parseDomainToken(token string) parseResult {
 }
 
 // fetchLines retrieves string payloads natively via bulk read from HTTP or local paths.
-// Optimized: Directly streams string parsing into a slice avoiding heavy []byte allocations.
+// Optimized: Utilizes shared.FetchStream for consolidated cross-tool I/O routing.
 func fetchLines(source string) ([]string, error) {
-	var reader io.Reader
-	var closeFunc func() error
-
-	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
-		req, errReq := http.NewRequest("GET", source, nil)
-		if errReq != nil {
-			return nil, errReq
-		}
-		req.Header.Set("User-Agent", "Mozilla/5.0")
-		client := &http.Client{Timeout: 15 * time.Second}
-		resp, errDo := client.Do(req)
-		if errDo != nil {
-			return nil, errDo
-		}
-		reader = resp.Body
-		closeFunc = resp.Body.Close
-	} else {
-		f, err := os.Open(source)
-		if err != nil {
-			return nil, err
-		}
-		reader = f
-		closeFunc = f.Close
+	stream, err := shared.FetchStream(source)
+	if err != nil {
+		return nil, err
 	}
+	defer stream.Close()
 
-	// Defer closure of the initialized HTTP stream or disk file dynamically
-	defer closeFunc()
-
-	scanner := bufio.NewScanner(reader)
+	scanner := bufio.NewScanner(stream)
 	// Accommodate deeply polluted lines mapping a heavy 1MB internal buffer to the stream directly
 	buf := make([]byte, 64*1024)
 	scanner.Buffer(buf, 1024*1024)
@@ -386,7 +364,7 @@ func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 		detectedFmt = detectFormat(lines)
 	}
 
-	logMsg(fmt.Sprintf("Bulk loading data from: %s (Format: %s)", source, strings.ToUpper(detectedFmt)))
+	logMsg("Bulk loading data from: %s (Format: %s)", source, strings.ToUpper(detectedFmt))
 
 	if workDir != "" {
 		h := sha256.New()
@@ -423,9 +401,9 @@ func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 
 		if len(parsed.DenyAllow) > 0 {
 			if isEffectivelyAllow {
-				logMsg(fmt.Sprintf("Warning: Ignored $denyallow targets %v from allowlist rule '%s' (redundant).", parsed.DenyAllow, rawToken))
+				logMsg("Warning: Ignored $denyallow targets %v from allowlist rule '%s' (redundant).", parsed.DenyAllow, rawToken)
 			} else {
-				logMsg(fmt.Sprintf("Ingestion: Extracted validated $denyallow domain(s) %v from block rule '%s'. Adding to allowlist.", parsed.DenyAllow, rawToken))
+				logMsg("Ingestion: Extracted validated $denyallow domain(s) %v from block rule '%s'. Adding to allowlist.", parsed.DenyAllow, rawToken)
 				
 				// $denyallow domains extracted strictly from a blocklist rule act as explicit allowlist overrides.
 				result.Allows = append(result.Allows, parsed.DenyAllow...)
@@ -492,7 +470,7 @@ func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 					}
 				}
 
-				if !isFastIP(punyDom) && isPlausibleDomain(punyDom) {
+				if !shared.IsFastIPStrict(punyDom) && shared.IsPlausibleDomain(punyDom) {
 					result.Blocks = append(result.Blocks, punyDom)
 					if domOrig != "" {
 						result.Conversions = append(result.Conversions, fmt.Sprintf("# %s - Converted from Unicode: %s", punyDom, domOrig))
@@ -512,7 +490,7 @@ func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 		if detectedFmt == "mixed" {
 			if strings.HasPrefix(firstToken, "@@||") || strings.HasPrefix(firstToken, "||") {
 				detectedFmt = "adblock"
-				logMsg(fmt.Sprintf("Dynamic format switch: Detected strong Adblock indicators. Switching format to ADBLOCK for %s", source))
+				logMsg("Dynamic format switch: Detected strong Adblock indicators. Switching format to ADBLOCK for %s", source)
 			}
 		}
 
@@ -525,11 +503,11 @@ func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 			isSquid = (detectedFmt == "squid")
 			isDomain = (detectedFmt == "domain")
 
-			if isHosts && !isFastIP(firstToken) {
+			if isHosts && !shared.IsFastIPStrict(firstToken) {
 				continue
 			}
 		} else {
-			isHosts = isFastIP(firstToken)
+			isHosts = shared.IsFastIPStrict(firstToken)
 			isAdblock = !isHosts && (strings.HasPrefix(firstToken, "@@") || strings.HasPrefix(firstToken, "||") || strings.Contains(firstToken, "^") || strings.Contains(firstToken, "$") || strings.HasPrefix(firstToken, "/"))
 			isRoutedns = !isHosts && !isAdblock && (strings.HasPrefix(firstToken, ".") || strings.HasPrefix(firstToken, "*."))
 			isSquid = !isHosts && !isAdblock && strings.HasPrefix(firstToken, ".")
