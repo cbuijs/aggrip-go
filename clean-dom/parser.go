@@ -1,13 +1,15 @@
 /*
 ==========================================================================
 Filename: clean-dom/parser.go
-Version: 1.5.0-20260429
-Date: 2026-04-29 14:24 CEST
+Version: 1.6.0-20260429
+Date: 2026-04-29 14:46 CEST
 Description: Handles file I/O, format detection, Adblock translation, 
              and parallel bulk ingestion of raw list payloads. Strict
              path rejection protects DNS zone integrity.
 
 Update Trail:
+  - 1.6.0 (2026-04-29): Migrated local isASCII function to centralized 
+                        shared.IsASCII maximizing code reusability.
   - 1.5.0 (2026-04-29): Cleansed extensive hallucinated adverb trails from 
                         comments while preserving original instructional logic.
   - 1.3.0 (2026-04-29): Integrated robust explanatory documentation extensively 
@@ -29,7 +31,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"unicode"
 
 	"golang.org/x/net/idna"
 	"aggrip-go/shared"
@@ -139,16 +140,6 @@ func normalizeDomain(d string) string {
 	return strings.Trim(d, ".")
 }
 
-// isASCII checks if a string contains only ASCII characters. Fast validation path.
-func isASCII(s string) bool {
-	for i := 0; i < len(s); i++ {
-		if s[i] > unicode.MaxASCII {
-			return false
-		}
-	}
-	return true
-}
-
 // stripHnsSlash safely evaluates if a token with a trailing slash is a valid 
 // Handshake (HNS) domain. If verified, it strips the slash for internal processing.
 // If it is a standard URL or invalid path, it returns an empty string to signal rejection.
@@ -232,7 +223,7 @@ func parseDomainToken(token string) parseResult {
 	punyDom := cleanDom
 	var domOrig string
 
-	if !isASCII(cleanDom) {
+	if !shared.IsASCII(cleanDom) {
 		if p, err := idna.ToASCII(cleanDom); err == nil {
 			punyDom = p
 			domOrig = cleanDom
@@ -281,7 +272,7 @@ func parseDomainToken(token string) parseResult {
 					punyDa := cleanDa
 					var daOrig string
 
-					if !isASCII(cleanDa) {
+					if !shared.IsASCII(cleanDa) {
 						if p, err := idna.ToASCII(cleanDa); err == nil {
 							punyDa = p
 							daOrig = cleanDa
@@ -451,7 +442,7 @@ func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 				punyDom := dom
 				var domOrig string
 
-				if !isASCII(dom) {
+				if !shared.IsASCII(dom) {
 					if p, err := idna.ToASCII(dom); err == nil {
 						punyDom = p
 						domOrig = dom

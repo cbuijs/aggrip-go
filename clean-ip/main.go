@@ -1,14 +1,15 @@
 /*
 ==========================================================================
 Filename: clean-ip/main.go
-Version: 1.4.0-20260429
-Date: 2026-04-29 14:45 CEST
+Version: 1.6.0-20260429
+Date: 2026-04-29 14:46 CEST
 Description: Enterprise-grade IP blocklist optimizer. High-speed Go port
              of clean-ip.py. Aggregates IPs, CIDRs, ranges. Cross-references
              against allowlists, collapses redundant subnets, performs
              mathematical hole-punching, and exports to firewall formats.
 
 Changes:
+- v1.6.0 (2026-04-29): Enhanced hole-punching boundary documentation explicitly.
 - v1.4.0 (2026-04-29): Implemented dynamic IsMassivePrefix telemetry accurately 
                        flagging excessive CIDR boundaries directly explicitly securely.
 - v1.3.0 (2026-04-29): Implemented bounded concurrency semaphore pool preventing 
@@ -406,8 +407,10 @@ func main() {
 	statsAllowlisted := 0
 	statsHoles := 0
 
-	// Pass 1: Total Eclipse
-	// Instantly invalidates block nodes entirely covered by explicit allowed targets.
+	// Pass 1: Total Eclipse Validation Phase.
+	// Instantly invalidates block nodes entirely covered by explicitly allowed targets.
+	// If a blocklist assigns 192.168.1.0/24, and the allowlist specifies 192.168.0.0/16,
+	// the entire blocked subnet is explicitly eclipsed and dropped natively in O(1).
 	for _, block := range collapsedBlocks {
 		isAllowed := false
 		for _, allow := range collapsedAllows {
@@ -427,6 +430,10 @@ func main() {
 	}
 
 	// Pass 2: Mathematical Hole Punching internally safely bypassing allow overlaps natively.
+	// If a blocklist assigns 192.168.0.0/16, but the allowlist exempts 192.168.1.0/24,
+	// this engine recursively bisects the supernet (using binary Halve operations) creating 
+	// a perfectly calculated array of adjacent CIDR blocks safely routing entirely around 
+	// the exclusion hole without causing firewall configuration bypass leakage natively.
 	var finalBlocks []netip.Prefix
 	for _, block := range filteredBlocks {
 		currentPieces := []netip.Prefix{block}

@@ -1,12 +1,13 @@
 /*
 ==========================================================================
 Filename: clean-dom/formatter.go
-Version: 1.3.0-20260429
-Date: 2026-04-29 14:24 CEST
+Version: 1.6.0-20260429
+Date: 2026-04-29 14:46 CEST
 Description: Handles deduplication, formatting, layout mapping, output 
              generation, comment injection, and disk writing operations.
 
 Update Trail:
+  - 1.6.0 (2026-04-29): Replaced local getParents with centralized shared.GetDomainParents.
   - 1.3.0 (2026-04-29): Added heavy verbose commentary natively mapping explicitly
                         detailed algorithms strictly aligning documentation.
   - 1.2.0 (2026-04-29): Standardized calls to central shared validation libraries.
@@ -84,7 +85,7 @@ func buildOutputs(
 			continue
 		}
 
-		parents := getParents(domain)
+		parents := shared.GetDomainParents(domain)
 		allowed := false
 
 		// Explode hierarchy traversing deeply checking explicit exclusions cleanly dynamically.
@@ -169,7 +170,7 @@ func buildOutputs(
 		}
 
 		hasBlockedParent := false
-		for _, parent := range getParents(allowDom) {
+		for _, parent := range shared.GetDomainParents(allowDom) {
 			if parent != allowDom {
 				if _, exists := finalActive[parent]; exists {
 					adblockRules[parent] = append(adblockRules[parent], allowDom)

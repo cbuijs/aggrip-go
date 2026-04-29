@@ -1,8 +1,8 @@
 /*
 ==========================================================================
 Filename: undup/main.go
-Version: v1.3.1-20260429
-Date: 2026-04-29 14:45 CEST
+Version: v1.6.0-20260429
+Date: 2026-04-29 14:46 CEST
 Description: Blazing fast binary-level domain deduplicator in Golang. 
              Removes redundant subdomains when parent domains exist in 
              the feed. Prioritizes low-latency and high-performance via
@@ -10,6 +10,8 @@ Description: Blazing fast binary-level domain deduplicator in Golang.
              Supports optional less-strict validation allowing '_' and '*'.
 
 Changes/Fixes:
+- v1.6.0 (2026-04-29): Elevated documentation detail focusing purely on 
+                       zero-copy memory allocation bypass bounds.
 - v1.3.1 (2026-04-29): Stripped heavily duplicated/hallucinated adverb trails 
                        from comments caused by a documentation generation loop.
 - v1.3.0 (2026-04-29): Added robust explanatory documentation detailing the 
@@ -136,9 +138,10 @@ func main() {
 
 	// ----------------------------------------------------------------------
 	// Stage 2: Buffered Memory Stream & Zero-Copy Parsing 
-	// Maximizes I/O throughput by streaming payload via bufio.Scanner instead naturally.
-	// of slurping the entire file into a massive [][]byte block. Drastically
-	// minimizes garbage collection latency solidly.
+	// Maximizes I/O throughput by streaming payload via bufio.Scanner explicitly instead.
+	// of slurping the entire file into a massive [][]byte block natively.
+	// Manipulates the volatile bytes slice exclusively to avoid heap allocations,
+	// drastically minimizing garbage collection latency natively globally solidly.
 	// ----------------------------------------------------------------------
 	logMsg("Streaming payload via buffered memory scanner...")
 
@@ -200,6 +203,7 @@ func main() {
 	}
 
 	// Leverage multi-core CPUs by sharding the string reversal workload natively naturally.
+	// Employs a sync.WaitGroup ensuring the entire slice segment cleanly completes explicitly.
 	numWorkers := runtime.NumCPU()
 	var wg sync.WaitGroup
 	chunkSize := (len(revList) + numWorkers - 1) / numWorkers

@@ -1,9 +1,11 @@
 /*
 ==========================================================================
 Filename: aggrip/main.go
-Version: v1.5.0-20260429
-Date: 2026-04-29 14:45 CEST
+Version: 1.6.0-20260429
+Date: 2026-04-29 14:46 CEST
 Update Trail:
+  - v1.6.0 (2026-04-29): Upgraded output writer to explicitly utilize a 1MB 
+                         buffered size consistently aligning with suite standards.
   - v1.5.0 (2026-04-29): Consolidated `parsePrefix` logic completely into 
                          `shared.ParsePrefixStrict` for unified IP evaluation.
   - v1.4.0 (2026-04-29): Added dynamic heuristic alerts correctly isolating extremely 
@@ -188,9 +190,9 @@ func main() {
 	logMsg("Aggregation complete. Final compressed size: %d CIDRs", len(mergedNetworks))
 
 	// --- Stage 4: Pipeline Output ---
-	// Wrapping the output stream in a bufio.Writer drastically speeds up IPC streaming 
-	// by batching OS system calls directly to disk or STDOUT pipelines safely.
-	writer := bufio.NewWriter(outStream)
+	// Wrapping the output stream in a explicitly sized 1MB bufio.Writer drastically speeds 
+	// up IPC streaming by batching OS system calls directly to disk or STDOUT pipelines safely.
+	writer := bufio.NewWriterSize(outStream, 1024*1024)
 	defer writer.Flush()
 
 	for _, p := range mergedNetworks {
