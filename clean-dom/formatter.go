@@ -1,12 +1,15 @@
 /*
 ==========================================================================
 Filename: clean-dom/formatter.go
-Version: 1.17.0-20260503
-Date: 2026-05-03 18:30 CEST
+Version: 1.18.0-20260503
+Date: 2026-05-03 18:51 CEST
 Description: Handles deduplication, formatting, layout mapping, output 
              generation, comment injection, and disk writing operations.
 
 Update Trail:
+  - 1.18.0 (2026-05-03): Implemented explicit global reporting file outputs securely 
+                         writing telemetry matrices cleanly mapping directly to 
+                         ingestion bounds resolving sources iteratively.
   - 1.17.0 (2026-05-03): Comprehensive updates ensuring blocklist and allowlist 
                          outputs uniformly contain explicit audit comments whenever 
                          a domain is modified, converted, eclipsed, or dropped.
@@ -61,10 +64,53 @@ func buildOutputs(
 	activeTopN map[string]struct{},
 	extSuffix string,
 	isTopNPass bool,
+	sourceMap map[string]string,
+	parserReports []ReportEntry,
+	reportFileStr string,
 ) {
 	passName := "(Full List)"
 	if isTopNPass {
 		passName = "(Top-N)"
+	}
+
+	// Instantiate High-Performance global telemetry output stream natively mapping metrics cleanly.
+	var repWriter *bufio.Writer
+	var repFile *os.File
+	if reportFileStr != "" {
+		flags := os.O_CREATE | os.O_WRONLY
+		if isTopNPass && outputFmt == "all" {
+			flags |= os.O_APPEND
+		} else {
+			flags |= os.O_TRUNC
+		}
+		var err error
+		repFile, err = os.OpenFile(reportFileStr, flags, 0644)
+		if err != nil {
+			log.Printf("Error creating report file: %v", err)
+		} else {
+			defer repFile.Close()
+			repWriter = shared.NewWriter(repFile)
+			
+			// Strictly prevent duplicated header bounds bridging appended passes natively.
+			if !(isTopNPass && outputFmt == "all") {
+				repWriter.WriteString("Domain\tAction\tReason\tSource\n")
+				// Dump populated arrays caching structural parser modifications instantly.
+				for _, r := range parserReports {
+					repWriter.WriteString(fmt.Sprintf("%s\t%s\t%s\t%s\n", r.Domain, r.Action, r.Reason, r.Source))
+				}
+			}
+		}
+	}
+
+	// Closure routing limits securely matching drops explicitly towards report streams.
+	logReport := func(domain, action, reason string) {
+		if repWriter != nil {
+			src := sourceMap[domain]
+			if src == "" {
+				src = "unknown/derived"
+			}
+			repWriter.WriteString(fmt.Sprintf("%s\t%s\t%s\t%s\n", domain, action, reason, src))
+		}
 	}
 
 	logMsg("--- Stage 4: Preparing for Deduplication %s ---", passName)
@@ -101,6 +147,7 @@ func buildOutputs(
 		if err != nil {
 			if _, exists := loggedInvalids[domain]; !exists {
 				loggedInvalids[domain] = struct{}{}
+				logReport(domain, "Removed", "Invalid structure: " + err.Error())
 				if !suppressComments {
 					// Format aligned to map the specific domain safely above its apex equivalent.
 					removedLogInvalids = append(removedLogInvalids, fmt.Sprintf("# %s - Removed from blocklist (Invalid): %v", domain, err))
@@ -122,6 +169,7 @@ func buildOutputs(
 					if !preferBlocklist {
 						usedAllows[p] = struct{}{}
 						allowed = true
+						logReport(domain, "Removed", "Covered by allowlist rule: " + p)
 						if !suppressComments {
 							// Formats the comment to explicitly extract and map against the parent/apex node.
 							removedLogGeneral = append(removedLogGeneral, fmt.Sprintf("# %s - Removed from blocklist (Covered by allowlist rule %s)", domain, p))
@@ -145,6 +193,7 @@ func buildOutputs(
 				}
 			}
 			if !inTopN {
+				logReport(domain, "Removed", "Not in Top-N list")
 				if !suppressComments {
 					removedLogGeneral = append(removedLogGeneral, fmt.Sprintf("# %s - Removed from blocklist (Not in Top-N list)", domain))
 				}
@@ -174,6 +223,7 @@ func buildOutputs(
 	for _, curr := range revList {
 		// Strict structural parity matching guaranteeing precise collision verification.
 		if lastKept != "" && strings.HasPrefix(curr, lastKept) && len(curr) > len(lastKept) && curr[len(lastKept)] == '.' {
+			logReport(shared.ReverseASCII(curr), "Removed", "Redundant subdomain of: " + shared.ReverseASCII(lastKept))
 			if !suppressComments {
 				// Formats the comment placing the apex first for proper alphabetical sequence alignment.
 				removedLogDedup = append(removedLogDedup, fmt.Sprintf("# %s - Removed from blocklist (Redundant subdomain of %s)", shared.ReverseASCII(curr), shared.ReverseASCII(lastKept)))
@@ -194,6 +244,7 @@ func buildOutputs(
 	for allowDom := range allowDomains {
 		// Ensure corrupted allow domains are safely trapped, skipping them and pushing audit comments.
 		if err := shared.ValidateDomain(allowDom, lessStrict, allowTLD); err != nil {
+			logReport(allowDom, "Removed (Allow)", "Invalid structure: " + err.Error())
 			if !suppressComments {
 				removedLogInvalidAllows = append(removedLogInvalidAllows, fmt.Sprintf("# %s - Removed from allowlist (Invalid): %v", allowDom, err))
 			}
@@ -224,6 +275,7 @@ func buildOutputs(
 				} else {
 					// Inverted priority: The allow domain is completely eclipsed and disabled by the block parent
 					isEclipsed = true
+					logReport(allowDom, "Removed (Allow)", "Eclipsed by blocklist match: " + parent)
 					if !suppressComments {
 						msg := fmt.Sprintf("# %s - Removed from allowlist (Eclipsed by blocklist match: %s)", allowDom, parent)
 						removedLogParentBlocked = append(removedLogParentBlocked, msg) // Audit trail mapped into blocklist
@@ -264,6 +316,7 @@ func buildOutputs(
 					continue // Already validated and logged in the earlier loop cleanly
 				}
 				if _, ok := usedAllows[dom]; !ok {
+					logReport(dom, "Removed (Allow)", "Unused allowlist entry dropped")
 					if !suppressComments {
 						removedLogUnusedAllows = append(removedLogUnusedAllows, fmt.Sprintf("# %s - Removed from allowlist (Unused)", dom))
 					}
@@ -277,6 +330,7 @@ func buildOutputs(
 			finalAllows = make(map[string]struct{})
 			for dom := range allowDomains {
 				if err := shared.ValidateDomain(dom, lessStrict, allowTLD); err == nil {
+					logReport(dom, "Removed (Allow)", "Optimization enabled, blocklist preferred")
 					if !suppressComments {
 						removedLogUnusedAllows = append(removedLogUnusedAllows, fmt.Sprintf("# %s - Removed from allowlist (Optimize enabled, prefer blocklist)", dom))
 					}
@@ -658,6 +712,11 @@ func buildOutputs(
 		if bwAllow != nil {
 			bwAllow.Flush()
 		}
+	}
+
+	// Purge global telemetry buffer cleanly resolving I/O streams safely.
+	if repWriter != nil {
+		repWriter.Flush()
 	}
 
 	if verbose {

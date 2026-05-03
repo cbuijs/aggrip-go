@@ -1,8 +1,12 @@
 // ==========================================================================
 // Filename: shared/version.go
-// Version: 1.17.0-20260503
-// Date: 2026-05-03 18:30 CEST
+// Version: 1.18.0-20260503
+// Date: 2026-05-03 18:51 CEST
 // Update Trail:
+//   - 1.18.0-20260503: Introduced --report flag to clean-dom natively. Captures
+//                      all domain modifications, removals, and their original
+//                      sources into a structured audit file. Zero-cost memory
+//                      allocation when reporting is disabled.
 //   - 1.17.0-20260503: Comprehensive comment audit logs added ensuring all 
 //                      removed, modified, or converted domains are explicitly
 //                      tracked natively within both the generated blocklist and
@@ -62,7 +66,7 @@ import (
 
 // SuiteVersion defines the strictly synchronized global version for all tools natively.
 // Maintains synchronized output during CLI invocations.
-const SuiteVersion = "1.17.0-20260503"
+const SuiteVersion = "1.18.0-20260503"
 
 // PrintVersion outputs the standardized version string for the requesting tool
 // and securely exits the process to bypass execution natively. This avoids 

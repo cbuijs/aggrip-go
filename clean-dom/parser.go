@@ -1,13 +1,15 @@
 /*
 ==========================================================================
 Filename: clean-dom/parser.go
-Version: 1.16.0-20260503
-Date: 2026-05-03 17:35 CEST
+Version: 1.18.0-20260503
+Date: 2026-05-03 18:51 CEST
 Description: Handles file I/O, format detection, Adblock translation, 
              and parallel bulk ingestion of raw list payloads. Strict
              path rejection protects DNS zone integrity.
 
 Update Trail:
+  - 1.18.0 (2026-05-03): Integrated telemetry arrays structurally mapping modifications 
+                         and sources natively when `--report` is evaluated dynamically.
   - 1.16.0 (2026-05-03): Integrated dynamic mapping pushing sub-domains directly
                          into apex bounds locally utilizing shared extraction logic.
   - 1.13.0 (2026-04-29): Eliminated DenyAllows dead code structures, 
@@ -45,12 +47,22 @@ import (
 	"aggrip-go/shared"
 )
 
+// ReportEntry structures modification logs matching source telemetry identically.
+type ReportEntry struct {
+	Domain string
+	Action string
+	Reason string
+	Source string
+}
+
 // ParsedLists contains cross-referenced parsed domains globally mapped.
 // Stripped deprecated DenyAllows slices previously wasting heap memory natively.
 type ParsedLists struct {
 	Blocks      []string
 	Allows      []string
 	Conversions []string
+	Reports     []ReportEntry
+	SourceMap   map[string]string
 }
 
 // parseResult encapsulates extracted metadata from complex syntax parsing.
@@ -64,6 +76,7 @@ type parseResult struct {
 	ApexOriginal         string // Tracks if apex mapping actively altered the primary payload natively
 	DenyAllowConversions []string // Tracks structural mappings executed against exclusions specifically
 	DenyAllowUnicodeMap  map[string]string
+	Reports              []ReportEntry
 }
 
 // detectFormat samples lines to heuristically determine the file format dynamically.
@@ -191,6 +204,7 @@ func parseDomainToken(token string) parseResult {
 		DenyAllow:            []string{},
 		DenyAllowConversions: []string{},
 		DenyAllowUnicodeMap:  make(map[string]string),
+		Reports:              make([]ReportEntry, 0),
 	}
 
 	// 1. Strictly map specific blocklist and allowlist configurations.
@@ -220,8 +234,11 @@ func parseDomainToken(token string) parseResult {
 	// If the domain part contains a path (indicated by a slash), drop it completely.
 	// EXCEPTION: Handshake (HNS) domains are allowed to end with a trailing slash legitimately.
 	if strings.Contains(domainPart, "/") {
-		domainPart = stripHnsSlash(domainPart)
-		if domainPart == "" {
+		cleaned := stripHnsSlash(domainPart)
+		if cleaned != "" {
+			res.Reports = append(res.Reports, ReportEntry{Domain: domainPart, Action: "Modified", Reason: "Stripped HNS trailing slash to map: " + cleaned})
+			domainPart = cleaned
+		} else {
 			return res
 		}
 	}
@@ -239,6 +256,7 @@ func parseDomainToken(token string) parseResult {
 		if p, err := idna.ToASCII(cleanDom); err == nil {
 			punyDom = p
 			domOrig = cleanDom
+			res.Reports = append(res.Reports, ReportEntry{Domain: domOrig, Action: "Modified", Reason: "Converted to Punycode: " + punyDom})
 		} else {
 			return res
 		}
@@ -250,6 +268,7 @@ func parseDomainToken(token string) parseResult {
 		apex, err := shared.ExtractApex(punyDom)
 		if err == nil && apex != punyDom {
 			res.ApexOriginal = punyDom
+			res.Reports = append(res.Reports, ReportEntry{Domain: punyDom, Action: "Removed", Reason: "Apex only, mapped to: " + apex})
 			punyDom = apex
 		}
 	}
@@ -279,11 +298,13 @@ func parseDomainToken(token string) parseResult {
 
 					// Check for Handshake trailing slashes explicitly.
 					if strings.Contains(da, "/") {
-						da = stripHnsSlash(da)
-						if da == "" {
+						cleanDaHns := stripHnsSlash(da)
+						if cleanDaHns == "" {
 							logMsg("Warning: Ignored $denyallow entry as it appears to be an invalid path/URL in rule '%s'", origToken)
 							continue
 						}
+						res.Reports = append(res.Reports, ReportEntry{Domain: da, Action: "Modified", Reason: "Stripped HNS trailing slash from exclusion: " + cleanDaHns})
+						da = cleanDaHns
 					}
 
 					cleanDa := normalizeDomain(da)
@@ -298,6 +319,7 @@ func parseDomainToken(token string) parseResult {
 						if p, err := idna.ToASCII(cleanDa); err == nil {
 							punyDa = p
 							daOrig = cleanDa
+							res.Reports = append(res.Reports, ReportEntry{Domain: daOrig, Action: "Modified", Reason: "Converted exclusion to Punycode: " + punyDa})
 						} else {
 							continue
 						}
@@ -313,6 +335,7 @@ func parseDomainToken(token string) parseResult {
 								continue
 							}
 							res.DenyAllowConversions = append(res.DenyAllowConversions, fmt.Sprintf("# %s - Removed (Apex only, mapped to: %s)", punyDa, daApex))
+							res.Reports = append(res.Reports, ReportEntry{Domain: punyDa, Action: "Removed", Reason: "Exclusion apex only, mapped to: " + daApex})
 							punyDa = daApex
 						}
 					}
@@ -325,6 +348,7 @@ func parseDomainToken(token string) parseResult {
 							if daOrig != "" {
 								res.DenyAllowUnicodeMap[punyDa] = daOrig
 							}
+							res.Reports = append(res.Reports, ReportEntry{Domain: punyDa, Action: "Allowed", Reason: "Extracted from $denyallow modifier bound to: " + punyDom})
 						} else {
 							logMsg("Warning: Ignored $denyallow entry '%s' as it is not a valid subdomain of base '%s' in rule '%s'", punyDa, punyDom, origToken)
 						}
@@ -343,8 +367,11 @@ func parseDomainToken(token string) parseResult {
 
 // readDomainsBulk orchestrates ingestion, heuristic format evaluation, and data extraction.
 // Refactored to stream explicitly rather than buffering full array boundaries.
-func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
+func readDomainsBulk(source string, isTopN bool, listType string, reportMode bool) ParsedLists {
 	var result ParsedLists
+	if reportMode {
+		result.SourceMap = make(map[string]string)
+	}
 
 	stream, err := shared.FetchStream(source)
 	if err != nil {
@@ -399,6 +426,14 @@ func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 
 	// inline boundary closure managing parsed results.
 	processParsed := func(parsed parseResult, rawToken string) {
+		// Route internal modification logs resolving source origins dynamically.
+		if reportMode {
+			for _, r := range parsed.Reports {
+				r.Source = source
+				result.Reports = append(result.Reports, r)
+			}
+		}
+
 		// Evaluate the true intent by letting explicit Adblock syntax override the default file type context.
 		isEffectivelyAllow := parsed.IsAllow || (isAllowList && !parsed.IsBlock)
 
@@ -407,6 +442,10 @@ func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 				result.Allows = append(result.Allows, parsed.Domain)
 			} else {
 				result.Blocks = append(result.Blocks, parsed.Domain)
+			}
+			
+			if reportMode {
+				result.SourceMap[parsed.Domain] = source
 			}
 			
 			// Map specific translations to output logs preserving audit limits seamlessly
@@ -427,6 +466,12 @@ func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 				// $denyallow domains extracted strictly from a blocklist rule act as explicit allowlist overrides.
 				// Maps perfectly to standard domains dynamically dropping requirement for tracking subsets natively.
 				result.Allows = append(result.Allows, parsed.DenyAllow...)
+
+				if reportMode {
+					for _, da := range parsed.DenyAllow {
+						result.SourceMap[da] = source
+					}
+				}
 
 				// Map specific conversions directly into the array boundaries securely
 				if len(parsed.DenyAllowConversions) > 0 {
@@ -473,8 +518,13 @@ func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 
 				// Handle Handshake trailing slash exceptions natively.
 				if strings.Contains(rawDom, "/") {
-					rawDom = stripHnsSlash(rawDom)
-					if rawDom == "" {
+					cleanRawHns := stripHnsSlash(rawDom)
+					if cleanRawHns != "" {
+						if reportMode {
+							result.Reports = append(result.Reports, ReportEntry{Domain: rawDom, Action: "Modified", Reason: "Stripped HNS trailing slash from Top-N: " + cleanRawHns, Source: source})
+						}
+						rawDom = cleanRawHns
+					} else {
 						return
 					}
 				}
@@ -491,6 +541,9 @@ func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 					if p, err := idna.ToASCII(dom); err == nil {
 						punyDom = p
 						domOrig = dom
+						if reportMode {
+							result.Reports = append(result.Reports, ReportEntry{Domain: domOrig, Action: "Modified", Reason: "Converted Top-N to Punycode: " + punyDom, Source: source})
+						}
 					} else {
 						return
 					}
@@ -500,12 +553,18 @@ func readDomainsBulk(source string, isTopN bool, listType string) ParsedLists {
 					apex, err := shared.ExtractApex(punyDom)
 					if err == nil && apex != punyDom {
 						result.Conversions = append(result.Conversions, fmt.Sprintf("# %s - Removed (Apex only, mapped to: %s)", punyDom, apex))
+						if reportMode {
+							result.Reports = append(result.Reports, ReportEntry{Domain: punyDom, Action: "Removed", Reason: "Top-N apex only, mapped to: " + apex, Source: source})
+						}
 						punyDom = apex
 					}
 				}
 
 				if !shared.IsFastIPStrict(punyDom) && shared.IsPlausibleDomain(punyDom) {
 					result.Blocks = append(result.Blocks, punyDom)
+					if reportMode {
+						result.SourceMap[punyDom] = source
+					}
 					if domOrig != "" {
 						result.Conversions = append(result.Conversions, fmt.Sprintf("# %s - Converted from Unicode: %s", punyDom, domOrig))
 					}

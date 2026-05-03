@@ -1,9 +1,12 @@
 /*
 ==========================================================================
 Filename: clean-dom/main.go
-Version: 1.17.0-20260503
-Date: 2026-05-03 18:30 CEST
+Version: 1.18.0-20260503
+Date: 2026-05-03 18:51 CEST
 Update Trail:
+  - 1.18.0 (2026-05-03): Added --report <file> parameter explicitly tracking 
+                         modifications, removals, and source origins globally.
+                         Implemented zero-cost telemetry arrays dynamically scaling.
   - 1.17.0 (2026-05-03): Enforced comprehensive allowlist and blocklist comment 
                          generation for all modified or removed domains natively.
   - 1.16.0 (2026-05-03): Added --apex-only parameter stripping all sub-domains natively.
@@ -57,6 +60,7 @@ var (
 	sortAlgo         string
 	outBlocklist     string
 	outAllowlist     string
+	reportFile       string
 	validTlds        string
 	optimizeAllow    bool
 	preferBlocklist  bool
@@ -99,6 +103,9 @@ func init() {
 	flag.StringVar(&outBlocklist, "out-blocklist", "", "File path to write the blocklist output (default: STDOUT)")
 	flag.StringVar(&outAllowlist, "out-allowlist", "", "File path to write the allowlist output")
 
+	flag.StringVar(&reportFile, "report", "", "File to output a comprehensive report of modified/removed domains with sources")
+	flag.StringVar(&reportFile, "r", "", "Short for --report")
+
 	flag.StringVar(&validTlds, "valid-tlds", "iana", "Comma-separated list of allowed TLD registries: iana (default), opennic, hns, all, disable")
 
 	flag.BoolVar(&optimizeAllow, "optimize-allowlist", false, "Drop unused allowlist entries")
@@ -139,6 +146,7 @@ func init() {
 		fmt.Fprintf(os.Stderr, "      --out-allowlist <file>     File path to write the allowlist output\n")
 		fmt.Fprintf(os.Stderr, "      --all-dir <dir>            Mandatory output directory to use when output format is set to 'all'\n")
 		fmt.Fprintf(os.Stderr, "  -w, --work-dir <dir>           Directory to save unmodified raw source files\n")
+		fmt.Fprintf(os.Stderr, "  -r, --report <file>            File to output a comprehensive report of modified/removed domains with sources\n")
 		fmt.Fprintf(os.Stderr, "      --sort <type>              Sorting algorithm (domain, alphabetically, tld) (default \"domain\")\n")
 		fmt.Fprintf(os.Stderr, "      --valid-tlds <list>        Allowed TLD registries (iana, opennic, hns, all, disable) (default \"iana\")\n")
 		fmt.Fprintf(os.Stderr, "      --optimize-allowlist       Drop unused allowlist entries\n")
@@ -152,7 +160,7 @@ func init() {
 		fmt.Fprintf(os.Stderr, "  -V, --version                  Show version information and exit\n")
 		fmt.Fprintf(os.Stderr, "  -h, --help                     Show this help message\n")
 		fmt.Fprintf(os.Stderr, "\nExample:\n")
-		fmt.Fprintf(os.Stderr, "  clean-dom -b ads.txt -o unbound --valid-tlds iana,opennic -p -v\n")
+		fmt.Fprintf(os.Stderr, "  clean-dom -b ads.txt -o unbound -r changes.tsv --valid-tlds iana,opennic -p -v\n")
 	}
 }
 
@@ -197,6 +205,12 @@ func main() {
 	allowDomains := make(map[string]struct{})
 	var conversionLog []string
 
+	// Global telemetry arrays explicitly restricted to --report executions.
+	// Bypasses memory allocations cleanly when uncalled.
+	reportMode := reportFile != ""
+	globalSourceMap := make(map[string]string)
+	globalReports := make([]ReportEntry, 0)
+
 	logMsg("Consolidating Blocklists...")
 
 	// Advanced Concurrency: processList utilizes a lock-free channel fan-in pattern
@@ -220,8 +234,8 @@ func main() {
 			go func(s string) {
 				// Acquire execution token from semaphore blocking pool
 				sem <- struct{}{}
-				// Transmit populated arrays over channel bounds
-				ch <- readDomainsBulk(s, isTopN, listType)
+				// Transmit populated arrays over channel bounds natively injecting report bounds.
+				ch <- readDomainsBulk(s, isTopN, listType, reportMode)
 				// Release execution token back into bounds
 				<-sem
 			}(source)
@@ -235,6 +249,16 @@ func main() {
 				allowDomains[a] = struct{}{}
 			}
 			conversionLog = append(conversionLog, res.Conversions...)
+
+			if reportMode {
+				globalReports = append(globalReports, res.Reports...)
+				for k, v := range res.SourceMap {
+					// Route the primary detected origin cleanly bypassing overlapping redundant mappings.
+					if _, exists := globalSourceMap[k]; !exists {
+						globalSourceMap[k] = v
+					}
+				}
+			}
 		}
 		close(ch)
 	}
@@ -264,7 +288,7 @@ func main() {
 		for _, source := range topnlists {
 			go func(s string) {
 				semTopN <- struct{}{}
-				ch <- readDomainsBulk(s, true, "Top-N")
+				ch <- readDomainsBulk(s, true, "Top-N", reportMode)
 				<-semTopN
 			}(source)
 		}
@@ -273,6 +297,14 @@ func main() {
 		for i := 0; i < len(topnlists); i++ {
 			res := <-ch
 			topNBlocks = append(topNBlocks, res.Blocks...)
+			if reportMode {
+				globalReports = append(globalReports, res.Reports...)
+				for k, v := range res.SourceMap {
+					if _, exists := globalSourceMap[k]; !exists {
+						globalSourceMap[k] = v
+					}
+				}
+			}
 		}
 		close(ch)
 		
@@ -284,13 +316,13 @@ func main() {
 	// Offload completely mapped and parsed matrices into the formatter engine.
 	// Formatter handles sorting, formatting translation, and file I/O operations.
 	if outputFmt == "all" && len(topnlists) > 0 {
-		buildOutputs(blockDomains, allowDomains, conversionLog, nil, "", false)
-		buildOutputs(blockDomains, allowDomains, conversionLog, topnDomains, ".top-n", true)
+		buildOutputs(blockDomains, allowDomains, conversionLog, nil, "", false, globalSourceMap, globalReports, reportFile)
+		buildOutputs(blockDomains, allowDomains, conversionLog, topnDomains, ".top-n", true, globalSourceMap, globalReports, reportFile)
 	} else {
 		if len(topnlists) > 0 {
-			buildOutputs(blockDomains, allowDomains, conversionLog, topnDomains, ".top-n", true)
+			buildOutputs(blockDomains, allowDomains, conversionLog, topnDomains, ".top-n", true, globalSourceMap, globalReports, reportFile)
 		} else {
-			buildOutputs(blockDomains, allowDomains, conversionLog, nil, "", false)
+			buildOutputs(blockDomains, allowDomains, conversionLog, nil, "", false, globalSourceMap, globalReports, reportFile)
 		}
 	}
 }
