@@ -1,9 +1,10 @@
 /*
 ==========================================================================
 Filename: clean-dom/main.go
-Version: 1.15.0-20260503
-Date: 2026-05-03 16:56 CEST
+Version: 1.16.0-20260503
+Date: 2026-05-03 17:35 CEST
 Update Trail:
+  - 1.16.0 (2026-05-03): Added --apex-only parameter stripping all sub-domains natively.
   - 1.15.0 (2026-05-03): Added preferBlocklist flag to allow blocklists to natively 
                          supersede allowlists. Updates memory routes dynamically.
   - 1.14.0 (2026-04-29): Fixed critical CLI flag regression where --out-blocklist 
@@ -57,6 +58,7 @@ var (
 	validTlds        string
 	optimizeAllow    bool
 	preferBlocklist  bool
+	apexOnly         bool
 	suppressComments bool
 	lessStrict       bool
 	allowTLD         bool
@@ -102,6 +104,8 @@ func init() {
 	flag.BoolVar(&preferBlocklist, "prefer-blocklist", false, "Reverse default preference: Blocklist takes precedence over allowlist")
 	flag.BoolVar(&preferBlocklist, "p", false, "Short for --prefer-blocklist")
 
+	flag.BoolVar(&apexOnly, "apex-only", false, "Strictly extract and retain only apex domains (eTLD+1), stripping sub-domains")
+
 	flag.BoolVar(&suppressComments, "suppress-comments", false, "Suppress audit log of removed domains")
 
 	flag.BoolVar(&lessStrict, "less-strict", false, "Allow underscores (_) and asterisks (*) in domain names")
@@ -137,6 +141,7 @@ func init() {
 		fmt.Fprintf(os.Stderr, "      --valid-tlds <list>        Allowed TLD registries (iana, opennic, hns, all, disable) (default \"iana\")\n")
 		fmt.Fprintf(os.Stderr, "      --optimize-allowlist       Drop unused allowlist entries\n")
 		fmt.Fprintf(os.Stderr, "  -p, --prefer-blocklist         Reverse default preference: Blocklist takes precedence over allowlist\n")
+		fmt.Fprintf(os.Stderr, "      --apex-only                Strictly extract and retain only apex domains (eTLD+1), stripping sub-domains\n")
 		fmt.Fprintf(os.Stderr, "      --suppress-comments        Suppress audit log of removed domains\n")
 		fmt.Fprintf(os.Stderr, "  -l, --less-strict              Allow underscores (_) and asterisks (*) in domain names\n")
 		fmt.Fprintf(os.Stderr, "      --allow-tld                Allow Top-Level Domains (TLDs) like 'com' (Note: 'com' collapses all .com subdomains)\n")

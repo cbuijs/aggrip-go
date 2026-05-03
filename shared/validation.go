@@ -1,8 +1,10 @@
 // ==========================================================================
 // Filename: shared/validation.go
-// Version: 1.14.0-20260429
-// Date: 2026-04-29 15:45 CEST
+// Version: 1.16.0-20260503
+// Date: 2026-05-03 17:35 CEST
 // Update Trail:
+//   - 1.16.0 (2026-05-03): Integrated Public Suffix List (PSL) natively.
+//                          Added ExtractApex bounding extraction capabilities.
 //   - 1.14.0 (2026-04-29): Added missing A-Z bounds block in IsValidDomain, 
 //                          ensuring shared validation perfectly handles streams 
 //                          that were not explicitly pre-lowercased natively.
@@ -26,6 +28,8 @@ import (
 	"fmt"
 	"net/netip"
 	"strings"
+
+	"golang.org/x/net/publicsuffix"
 )
 
 var (
@@ -198,6 +202,12 @@ func ValidateDomain(domain string, lessStrict bool, allowTLD bool) error {
 	}
 
 	return nil
+}
+
+// ExtractApex isolates the registrable apex domain (eTLD+1) rapidly using the
+// native Public Suffix List. Safely strips all sub-domains to core bounds.
+func ExtractApex(domain string) (string, error) {
+	return publicsuffix.EffectiveTLDPlusOne(domain)
 }
 
 // IsFastIPStrict runs a strict heuristic check using netip to ensure valid IP structures.
