@@ -1,12 +1,15 @@
 /*
 ==========================================================================
 Filename: clean-dom/formatter.go
-Version: 1.13.0-20260429
-Date: 2026-04-29 15:37 CEST
+Version: 1.15.0-20260503
+Date: 2026-05-03 16:56 CEST
 Description: Handles deduplication, formatting, layout mapping, output 
              generation, comment injection, and disk writing operations.
 
 Update Trail:
+  - 1.15.0 (2026-05-03): Integrated preferBlocklist logic to selectively invert 
+                         collision resolution, allowing blocklists to completely 
+                         eclipse overlapping allowlists natively.
   - 1.13.0 (2026-04-29): Purged dead-code loops associated with deprecated 
                          denyAllowOverrides structures, reducing O(N) limits.
   - 1.12.0 (2026-04-29): Removed dead code wrapper validAllowDomainsCounter.
@@ -81,6 +84,7 @@ func buildOutputs(
 	loggedInvalids := make(map[string]struct{})
 
 	statsAllowlisted, statsTopN, statsDeduped, statsInvalidStruct := 0, 0, 0, 0
+	statsEclipsedAllows := 0
 
 	for _, domain := range blockDomains {
 		// Validates structural boundaries, strict RFC limits, and embedded TLD dictionaries.
@@ -105,14 +109,18 @@ func buildOutputs(
 		if len(allowDomains) > 0 {
 			for _, p := range parents {
 				if _, exists := allowDomains[p]; exists {
-					usedAllows[p] = struct{}{}
-					allowed = true
-					if !suppressComments {
-						// Formats the comment to explicitly extract and map against the parent/apex node.
-						removedLogGeneral = append(removedLogGeneral, fmt.Sprintf("# %s - Allowlisted subdomain removed: %s", p, domain))
+					// Enforce symmetric priority based on preferBlocklist constraints.
+					// If blocklist holds priority, we completely ignore allowlist intersections during block generation.
+					if !preferBlocklist {
+						usedAllows[p] = struct{}{}
+						allowed = true
+						if !suppressComments {
+							// Formats the comment to explicitly extract and map against the parent/apex node.
+							removedLogGeneral = append(removedLogGeneral, fmt.Sprintf("# %s - Allowlisted subdomain removed: %s", p, domain))
+						}
+						statsAllowlisted++
+						break
 					}
-					statsAllowlisted++
-					break
 				}
 			}
 			if allowed {
@@ -182,30 +190,50 @@ func buildOutputs(
 		}
 
 		hasBlockedParent := false
-		for _, parent := range shared.GetDomainParents(allowDom) {
-			if parent != allowDom {
-				if _, exists := finalActive[parent]; exists {
-					adblockRules[parent] = append(adblockRules[parent], allowDom)
-					hasBlockedParent = true
-					usedAllows[allowDom] = struct{}{}
+		isEclipsed := false
 
-					// Subdomains unblocked within a blocked parent scope act logarithmically differently than standard files
-					if outputFmt != "hosts" {
-						if !suppressComments {
-							removedLogParentBlocked = append(removedLogParentBlocked, fmt.Sprintf("# %s - Explicitly allowed subdomain mapped: %s", parent, allowDom))
+		for _, parent := range shared.GetDomainParents(allowDom) {
+			if _, exists := finalActive[parent]; exists {
+				if !preferBlocklist {
+					if parent != allowDom {
+						adblockRules[parent] = append(adblockRules[parent], allowDom)
+						hasBlockedParent = true
+						usedAllows[allowDom] = struct{}{}
+
+						// Subdomains unblocked within a blocked parent scope act logarithmically differently than standard files
+						if outputFmt != "hosts" {
+							if !suppressComments {
+								removedLogParentBlocked = append(removedLogParentBlocked, fmt.Sprintf("# %s - Explicitly allowed subdomain mapped: %s", parent, allowDom))
+							}
+							statsAllowIgnored++
 						}
-						statsAllowIgnored++
+						break
 					}
+				} else {
+					// Inverted priority: The allow domain is completely eclipsed and disabled by the block parent
+					isEclipsed = true
+					if !suppressComments {
+						removedLogParentBlocked = append(removedLogParentBlocked, fmt.Sprintf("# %s - Allowlist entry eclipsed by blocklist match: %s", allowDom, parent))
+					}
+					statsEclipsedAllows++
 					break
 				}
 			}
 		}
 
-		if !hasBlockedParent {
-			if !optimizeAllow {
-				standaloneAllows = append(standaloneAllows, allowDom)
-			} else if _, ok := usedAllows[allowDom]; ok {
-				standaloneAllows = append(standaloneAllows, allowDom)
+		if !preferBlocklist {
+			if !hasBlockedParent {
+				if !optimizeAllow {
+					standaloneAllows = append(standaloneAllows, allowDom)
+				} else if _, ok := usedAllows[allowDom]; ok {
+					standaloneAllows = append(standaloneAllows, allowDom)
+				}
+			}
+		} else {
+			if !isEclipsed {
+				if !optimizeAllow {
+					standaloneAllows = append(standaloneAllows, allowDom)
+				}
 			}
 		}
 	}
@@ -214,24 +242,44 @@ func buildOutputs(
 	statsUnusedAllows := 0 // Tracks locally preventing full structural revalidation loops later
 
 	if optimizeAllow {
-		finalAllows = usedAllows
-		for dom := range allowDomains {
-			// We also drop invalid allowlists directly preventing broken config generations.
-			if err := shared.ValidateDomain(dom, lessStrict, allowTLD); err != nil {
-				continue
-			}
-			if _, ok := usedAllows[dom]; !ok {
-				if !suppressComments {
-					removedLogUnusedAllows = append(removedLogUnusedAllows, fmt.Sprintf("# %s - Removed from allowlist (Unused)", dom))
+		if !preferBlocklist {
+			finalAllows = usedAllows
+			for dom := range allowDomains {
+				// We also drop invalid allowlists directly preventing broken config generations.
+				if err := shared.ValidateDomain(dom, lessStrict, allowTLD); err != nil {
+					continue
 				}
-				// Increment native unused statistic explicitly replacing dead validation function logic
-				statsUnusedAllows++
+				if _, ok := usedAllows[dom]; !ok {
+					if !suppressComments {
+						removedLogUnusedAllows = append(removedLogUnusedAllows, fmt.Sprintf("# %s - Removed from allowlist (Unused)", dom))
+					}
+					// Increment native unused statistic explicitly replacing dead validation function logic
+					statsUnusedAllows++
+				}
+			}
+		} else {
+			// If blocklist is preferred and optimization is enabled, all standalone allows
+			// are inherently dropped as they do not actively bypass any blocklist rules.
+			finalAllows = make(map[string]struct{})
+			for dom := range allowDomains {
+				if err := shared.ValidateDomain(dom, lessStrict, allowTLD); err == nil {
+					if !suppressComments {
+						removedLogUnusedAllows = append(removedLogUnusedAllows, fmt.Sprintf("# %s - Removed from allowlist (Optimize enabled, prefer blocklist)", dom))
+					}
+					statsUnusedAllows++
+				}
 			}
 		}
 	} else {
 		finalAllows = make(map[string]struct{})
-		for dom := range allowDomains {
-			if err := shared.ValidateDomain(dom, lessStrict, allowTLD); err == nil {
+		if !preferBlocklist {
+			for dom := range allowDomains {
+				if err := shared.ValidateDomain(dom, lessStrict, allowTLD); err == nil {
+					finalAllows[dom] = struct{}{}
+				}
+			}
+		} else {
+			for _, dom := range standaloneAllows {
 				finalAllows[dom] = struct{}{}
 			}
 		}
@@ -570,14 +618,19 @@ func buildOutputs(
 		logMsg("========== OPTIMIZATION STATS %s ==========", passName)
 		logMsg("Total Blocklist Domains Read: %d", len(blockDomains))
 		logMsg("Removed (Invalid/Unregistered): %d", statsInvalidStruct)
-		logMsg("Removed (Allowlisted)       : %d", statsAllowlisted)
+		if !preferBlocklist {
+			logMsg("Removed (Allowlisted)       : %d", statsAllowlisted)
+		}
 		logMsg("Removed (Not in Top-N)      : %d", statsTopN)
 		logMsg("Removed (Sub-domain Dedup)  : %d", statsDeduped)
 		if optimizeAllow {
 			logMsg("Dropped (Unused Allows)     : %d", statsUnusedAllows)
 		}
-		if outputFmt != "hosts" {
+		if !preferBlocklist && outputFmt != "hosts" {
 			logMsg("Ignored Allows (Blocked)    : %d", statsAllowIgnored)
+		}
+		if preferBlocklist {
+			logMsg("Dropped Allows (Eclipsed)   : %d", statsEclipsedAllows)
 		}
 		logMsg("----------------------------------------------------")
 		logMsg("Final Active Domains        : %d (%d in HOSTS format)", len(finalActive), len(filteredBlocks))

@@ -1,14 +1,17 @@
 /*
 ==========================================================================
 Filename: clean-ip/main.go
-Version: 1.12.0-20260429
-Date: 2026-04-29 15:32 CEST
+Version: 1.15.0-20260503
+Date: 2026-05-03 16:56 CEST
 Description: Enterprise-grade IP blocklist optimizer. High-speed Go port
              of clean-ip.py. Aggregates IPs, CIDRs, ranges. Cross-references
              against allowlists, collapses redundant subnets, performs
              mathematical hole-punching, and exports to firewall formats.
 
 Changes:
+- v1.15.0 (2026-05-03): Introduced PreferBlocklist logic to symmetrically invert 
+                        hole-punching and eclipse evaluation bounds. Allows 
+                        blocklists to safely drop and fracture allowlist bounds.
 - v1.12.0 (2026-04-29): Eliminated O(N) memory scale regressions securely by
                         pre-allocating output slices matching subset limits.
                         Eliminates deep GC pressure and copying.
@@ -57,6 +60,7 @@ type Options struct {
 	OutBlocklist      string
 	OutAllowlist      string
 	OptimizeAllowlist bool
+	PreferBlocklist   bool
 	SuppressComments  bool
 	Strict            bool
 	Verbose           bool
@@ -291,6 +295,10 @@ func main() {
 	flag.StringVar(&opts.OutBlocklist, "out-blocklist", "", "File path to write the blocklist output")
 	flag.StringVar(&opts.OutAllowlist, "out-allowlist", "", "File path to write the allowlist output")
 	flag.BoolVar(&opts.OptimizeAllowlist, "optimize-allowlist", false, "Drop unused allowlist entries")
+	
+	flag.BoolVar(&opts.PreferBlocklist, "prefer-blocklist", false, "Reverse default preference: Blocklist takes precedence over allowlist")
+	flag.BoolVar(&opts.PreferBlocklist, "p", false, "Short for --prefer-blocklist")
+
 	flag.BoolVar(&opts.SuppressComments, "suppress-comments", false, "Suppress audit log comments")
 
 	flag.BoolVar(&opts.Strict, "strict", false, "Strict mode: Reject CIDRs with dirty host bits")
@@ -316,13 +324,14 @@ func main() {
 		fmt.Fprintf(os.Stderr, "      --out-blocklist <file>     File path to write the blocklist output\n")
 		fmt.Fprintf(os.Stderr, "      --out-allowlist <file>     File path to write the allowlist output\n")
 		fmt.Fprintf(os.Stderr, "      --optimize-allowlist       Drop unused allowlist entries\n")
+		fmt.Fprintf(os.Stderr, "  -p, --prefer-blocklist         Reverse default preference: Blocklist takes precedence over allowlist\n")
 		fmt.Fprintf(os.Stderr, "      --suppress-comments        Suppress audit log comments\n")
 		fmt.Fprintf(os.Stderr, "  -s, --strict                   Strict mode: Reject CIDRs with dirty host bits\n")
 		fmt.Fprintf(os.Stderr, "  -v, --verbose                  Verbose: Show progress on STDERR\n")
 		fmt.Fprintf(os.Stderr, "  -V, --version                  Show version information and exit\n")
 		fmt.Fprintf(os.Stderr, "  -h, --help                     Show this help message\n")
 		fmt.Fprintf(os.Stderr, "\nExample:\n")
-		fmt.Fprintf(os.Stderr, "  clean-ip -b drop1.txt -b drop2.txt -a allow.txt -o iptables --out-blocklist rules.v4 -v\n")
+		fmt.Fprintf(os.Stderr, "  clean-ip -b drop1.txt -b drop2.txt -a allow.txt -o iptables -p --out-blocklist rules.v4 -v\n")
 	}
 
 	// Native flag parsing maps the stringSlice arguments.
@@ -402,88 +411,151 @@ func main() {
 
 	logMsg(opts.Verbose, "--- Stage 4: Cross-Referencing & Hole Punching ---")
 
-	// Pre-allocate map slice capacities tightly bound to expected payload limit natively.
-	// Bypasses massive O(N) internal scaling operations preventing GC stalls.
-	filteredBlocks := make([]netip.Prefix, 0, len(collapsedBlocks))
-	usedAllows := make(map[netip.Prefix]bool)
 	var removedLog []string
-
-	// Type matrix tracking hole-punch exceptions
-	type Hole struct{ allow, block netip.Prefix }
-	var punchedHoles []Hole
-
-	statsAllowlisted := 0
-	statsHoles := 0
-
-	// Pass 1: Total Eclipse Validation Phase.
-	// Instantly invalidates block nodes entirely covered by explicitly allowed targets.
-	// If a blocklist assigns 192.168.1.0/24, and the allowlist specifies 192.168.0.0/16,
-	// the entire blocked subnet is explicitly eclipsed and dropped natively in O(1).
-	for _, block := range collapsedBlocks {
-		isAllowed := false
-		for _, allow := range collapsedAllows {
-			if block.Addr().Is4() == allow.Addr().Is4() && allow.Contains(block.Addr()) && allow.Bits() <= block.Bits() {
-				usedAllows[allow] = true
-				isAllowed = true
-				if !opts.SuppressComments {
-					removedLog = append(removedLog, fmt.Sprintf("# %s - Removed because allowlisted by encompassing subnet %s", block, allow))
-				}
-				statsAllowlisted++
-				break
-			}
-		}
-		if !isAllowed {
-			filteredBlocks = append(filteredBlocks, block)
-		}
-	}
-
-	// Pass 2: Mathematical Hole Punching to safely bypass allowlist overlaps.
-	// If a blocklist assigns 192.168.0.0/16, but the allowlist exempts 192.168.1.0/24,
-	// this engine recursively bisects the supernet (using binary Halve operations) creating 
-	// a perfectly calculated array of adjacent CIDR blocks safely routing entirely around 
-	// the exclusion hole without causing firewall configuration bypass leakage.
-	
-	// Slice capacity pre-allocation to prevent slice threshold reallocations explicitly.
-	finalBlocks := make([]netip.Prefix, 0, len(filteredBlocks))
-	
-	for _, block := range filteredBlocks {
-		currentPieces := []netip.Prefix{block}
-
-		for _, allow := range collapsedAllows {
-			if allow.Addr().Is4() != block.Addr().Is4() {
-				continue
-			}
-			var nextPieces []netip.Prefix
-			for _, piece := range currentPieces {
-				if piece.Contains(allow.Addr()) && piece.Bits() < allow.Bits() {
-					usedAllows[allow] = true
-					statsHoles++
-					if !opts.SuppressComments {
-						punchedHoles = append(punchedHoles, Hole{allow, block})
-					}
-					// Sub-shard the CIDR array dynamically excluding allowed IPs
-					nextPieces = append(nextPieces, shared.ExcludePrefix(piece, allow)...)
-				} else {
-					nextPieces = append(nextPieces, piece)
-				}
-			}
-			currentPieces = nextPieces
-		}
-		finalBlocks = append(finalBlocks, currentPieces...)
-	}
-
-	// Final cleanup matrix explicitly compressing fractured arrays.
-	finalBlocks = shared.CollapsePrefixes(finalBlocks)
-
-	// Array capacity pre-allocation matching maximum allowable subsets securely.
-	finalAllows := make([]netip.Prefix, 0, len(collapsedAllows))
 	var removedAllowsLog []string
 
-	for _, allow := range collapsedAllows {
-		if !opts.OptimizeAllowlist || usedAllows[allow] {
-			finalAllows = append(finalAllows, allow)
-		} else if !opts.SuppressComments {
-			removedAllowsLog = append(removedAllowsLog, fmt.Sprintf("# %s - Removed from allowlist because it is unused", allow))
+	// Type matrix tracking symmetric hole-punch exceptions. Base is the target being split, Hole is the exclusion matrix.
+	type Hole struct{ base, hole netip.Prefix }
+	var punchedHoles []Hole
+
+	statsEclipsed := 0
+	statsHoles := 0
+
+	var finalBlocks []netip.Prefix
+	var finalAllows []netip.Prefix
+
+	if !opts.PreferBlocklist {
+		// --------------------------------------------------------------------------
+		// Default Mode (Allowlist Priority): Allows destroy and fracture blocks natively.
+		// --------------------------------------------------------------------------
+		filteredBlocks := make([]netip.Prefix, 0, len(collapsedBlocks))
+		usedAllows := make(map[netip.Prefix]bool)
+
+		// Pass 1: Total Eclipse Validation Phase.
+		// Instantly invalidates block nodes entirely covered by explicitly allowed targets.
+		for _, block := range collapsedBlocks {
+			isAllowed := false
+			for _, allow := range collapsedAllows {
+				if block.Addr().Is4() == allow.Addr().Is4() && allow.Contains(block.Addr()) && allow.Bits() <= block.Bits() {
+					usedAllows[allow] = true
+					isAllowed = true
+					if !opts.SuppressComments {
+						removedLog = append(removedLog, fmt.Sprintf("# %s - Removed because allowlisted by encompassing subnet %s", block, allow))
+					}
+					statsEclipsed++
+					break
+				}
+			}
+			if !isAllowed {
+				filteredBlocks = append(filteredBlocks, block)
+			}
+		}
+
+		// Pass 2: Mathematical Hole Punching to safely bypass allowlist overlaps.
+		// Bypasses allowlist intersections structurally by recursively fracturing the block supernet safely.
+		finalBlocks = make([]netip.Prefix, 0, len(filteredBlocks))
+		for _, block := range filteredBlocks {
+			currentPieces := []netip.Prefix{block}
+
+			for _, allow := range collapsedAllows {
+				if allow.Addr().Is4() != block.Addr().Is4() {
+					continue
+				}
+				var nextPieces []netip.Prefix
+				for _, piece := range currentPieces {
+					if piece.Contains(allow.Addr()) && piece.Bits() < allow.Bits() {
+						usedAllows[allow] = true
+						statsHoles++
+						if !opts.SuppressComments {
+							punchedHoles = append(punchedHoles, Hole{base: block, hole: allow})
+						}
+						// Sub-shard the CIDR array dynamically excluding allowed IPs
+						nextPieces = append(nextPieces, shared.ExcludePrefix(piece, allow)...)
+					} else {
+						nextPieces = append(nextPieces, piece)
+					}
+				}
+				currentPieces = nextPieces
+			}
+			finalBlocks = append(finalBlocks, currentPieces...)
+		}
+		finalBlocks = shared.CollapsePrefixes(finalBlocks)
+
+		// Final allowlist optimization checks natively dropping unused configurations
+		finalAllows = make([]netip.Prefix, 0, len(collapsedAllows))
+		for _, allow := range collapsedAllows {
+			if !opts.OptimizeAllowlist || usedAllows[allow] {
+				finalAllows = append(finalAllows, allow)
+			} else if !opts.SuppressComments {
+				removedAllowsLog = append(removedAllowsLog, fmt.Sprintf("# %s - Removed from allowlist because it is unused", allow))
+			}
+		}
+
+	} else {
+		// --------------------------------------------------------------------------
+		// Reversed Mode (Blocklist Priority): Blocks destroy and fracture allows natively.
+		// --------------------------------------------------------------------------
+		filteredAllows := make([]netip.Prefix, 0, len(collapsedAllows))
+
+		// Pass 1: Total Eclipse Validation Phase.
+		// Completely invalidates allowlist domains entirely engulfed inside blocklist scopes securely.
+		for _, allow := range collapsedAllows {
+			isBlocked := false
+			for _, block := range collapsedBlocks {
+				if allow.Addr().Is4() == block.Addr().Is4() && block.Contains(allow.Addr()) && block.Bits() <= allow.Bits() {
+					isBlocked = true
+					if !opts.SuppressComments {
+						removedAllowsLog = append(removedAllowsLog, fmt.Sprintf("# %s - Removed because eclipsed by blocklist subnet %s", allow, block))
+					}
+					statsEclipsed++
+					break
+				}
+			}
+			if !isBlocked {
+				filteredAllows = append(filteredAllows, allow)
+			}
+		}
+
+		// Pass 2: Mathematical Hole Punching to enforce block precedence over conflicting allows.
+		// Splits explicitly spanning allow matrices entirely around overlapping block configurations accurately.
+		finalAllowsTemp := make([]netip.Prefix, 0, len(filteredAllows))
+		for _, allow := range filteredAllows {
+			currentPieces := []netip.Prefix{allow}
+
+			for _, block := range collapsedBlocks {
+				if block.Addr().Is4() != allow.Addr().Is4() {
+					continue
+				}
+				var nextPieces []netip.Prefix
+				for _, piece := range currentPieces {
+					if piece.Contains(block.Addr()) && piece.Bits() < block.Bits() {
+						statsHoles++
+						if !opts.SuppressComments {
+							punchedHoles = append(punchedHoles, Hole{base: allow, hole: block})
+						}
+						// Fracture the allow subnet explicitly guarding against the overlapping block scope
+						nextPieces = append(nextPieces, shared.ExcludePrefix(piece, block)...)
+					} else {
+						nextPieces = append(nextPieces, piece)
+					}
+				}
+				currentPieces = nextPieces
+			}
+			finalAllowsTemp = append(finalAllowsTemp, currentPieces...)
+		}
+
+		finalAllows = shared.CollapsePrefixes(finalAllowsTemp)
+		finalBlocks = collapsedBlocks // Blocks remain fully intact and authoritative.
+
+		// Optimize Allowlist in strict PreferBlocklist boundaries intrinsically
+		// destroys all standalone allows as they are structurally irrelevant regarding blocking matrices.
+		if opts.OptimizeAllowlist {
+			if !opts.SuppressComments {
+				for _, a := range finalAllows {
+					removedAllowsLog = append(removedAllowsLog, fmt.Sprintf("# %s - Removed from allowlist (Optimize enabled, prefer blocklist)", a))
+				}
+			}
+			finalAllows = nil // Clear limits
 		}
 	}
 
@@ -500,11 +572,20 @@ func main() {
 		outB = f
 	}
 
-	// Wrap targets with 1MB buffered writers centrally to maximize I/O performance.
-	// Minimizes GC allocations bypassing system interrupt loads explicitly.
+	// Wrap blocklist target with 1MB buffered writers centrally to maximize I/O performance.
 	bwBlock := shared.NewWriter(outB)
 	defer bwBlock.Flush()
 
+	// Inline stream struct securely tracking metadata for sorted block placement.
+	type StreamItem struct {
+		isIPv4 bool
+		ip     netip.Addr
+		bits   int
+		isRule bool
+		str    string
+	}
+
+	// Allowlist output export logic securely aligning exception logging matrices
 	if opts.OutAllowlist != "" {
 		f, err := os.Create(opts.OutAllowlist)
 		if err != nil {
@@ -514,8 +595,52 @@ func main() {
 		defer f.Close()
 
 		bwAllow := shared.NewWriter(f)
-		for _, net := range finalAllows {
-			bwAllow.WriteString(formatAllowNetwork(net, opts.Output, opts.RangeSep) + "\n")
+		
+		if !opts.PreferBlocklist {
+			// Direct mapping when blocklist holes do not alter standard allow sequences
+			for _, net := range finalAllows {
+				bwAllow.WriteString(formatAllowNetwork(net, opts.Output, opts.RangeSep) + "\n")
+			}
+		} else {
+			// Sorting matrices explicitly aligning generated allowlist comments securely above fractured holes
+			var allowStream []StreamItem
+			for _, net := range finalAllows {
+				allowStream = append(allowStream, StreamItem{
+					isIPv4: net.Addr().Is4(),
+					ip:     net.Addr(),
+					bits:   net.Bits(),
+					isRule: true,
+					str:    formatAllowNetwork(net, opts.Output, opts.RangeSep),
+				})
+			}
+			for _, h := range punchedHoles {
+				comment := fmt.Sprintf("# %s - Punched mathematical exception hole inside allowlist bound %s", h.hole, h.base)
+				allowStream = append(allowStream, StreamItem{
+					isIPv4: h.base.Addr().Is4(),
+					ip:     h.base.Addr(),
+					bits:   h.base.Bits(),
+					isRule: false,
+					str:    comment,
+				})
+			}
+
+			slices.SortFunc(allowStream, func(a, b StreamItem) int {
+				if a.isIPv4 != b.isIPv4 {
+					if a.isIPv4 { return -1 }
+					return 1
+				}
+				if cmp := a.ip.Compare(b.ip); cmp != 0 { return cmp }
+				if a.bits != b.bits { return a.bits - b.bits }
+				if a.isRule != b.isRule {
+					if !a.isRule { return -1 }
+					return 1
+				}
+				return 0
+			})
+
+			for _, item := range allowStream {
+				bwAllow.WriteString(item.str + "\n")
+			}
 		}
 		bwAllow.Flush()
 	}
@@ -530,17 +655,8 @@ func main() {
 		}
 	}
 
-	// Inline stream struct to guarantee specific placement during output sequence.
-	// Specifically protects exception comments routing immediately above their relevant networks.
-	type StreamItem struct {
-		isIPv4 bool
-		ip     netip.Addr
-		bits   int
-		isRule bool
-		str    string
-	}
+	// Matrix sequence directly targeting blocked arrays. Sorts log alignments perfectly.
 	var stream []StreamItem
-
 	for _, net := range finalBlocks {
 		stream = append(stream, StreamItem{
 			isIPv4: net.Addr().Is4(),
@@ -551,35 +667,29 @@ func main() {
 		})
 	}
 
-	for _, h := range punchedHoles {
-		comment := fmt.Sprintf("# %s - Punched mathematical exception hole inside %s", h.allow, h.block)
-		stream = append(stream, StreamItem{
-			isIPv4: h.allow.Addr().Is4(),
-			ip:     h.allow.Addr(),
-			bits:   h.allow.Bits(),
-			isRule: false,
-			str:    comment,
-		})
+	if !opts.PreferBlocklist {
+		for _, h := range punchedHoles {
+			comment := fmt.Sprintf("# %s - Punched mathematical exception hole inside blocklist bound %s", h.hole, h.base)
+			stream = append(stream, StreamItem{
+				isIPv4: h.base.Addr().Is4(),
+				ip:     h.base.Addr(),
+				bits:   h.base.Bits(),
+				isRule: false,
+				str:    comment,
+			})
+		}
 	}
 
 	slices.SortFunc(stream, func(a, b StreamItem) int {
 		if a.isIPv4 != b.isIPv4 {
-			if a.isIPv4 {
-				return -1
-			}
+			if a.isIPv4 { return -1 }
 			return 1
 		}
-		if cmp := a.ip.Compare(b.ip); cmp != 0 {
-			return cmp
-		}
-		if a.bits != b.bits {
-			return a.bits - b.bits
-		}
+		if cmp := a.ip.Compare(b.ip); cmp != 0 { return cmp }
+		if a.bits != b.bits { return a.bits - b.bits }
 		// Force comments (isRule=false) directly above the impacted rule reliably.
 		if a.isRule != b.isRule {
-			if !a.isRule {
-				return -1
-			}
+			if !a.isRule { return -1 }
 			return 1
 		}
 		return 0
@@ -593,8 +703,13 @@ func main() {
 		logMsg(true, "========== OPTIMIZATION STATS ==========")
 		logMsg(true, "Total Blocks Parsed         : %d", len(rawBlocks))
 		logMsg(true, "Collapsed Block Subnets     : %d", len(collapsedBlocks))
-		logMsg(true, "Removed (Allowlisted)       : %d", statsAllowlisted)
-		logMsg(true, "Holes Punched (Exclusions)  : %d", statsHoles)
+		if !opts.PreferBlocklist {
+			logMsg(true, "Removed Blocks (Eclipsed)   : %d", statsEclipsed)
+			logMsg(true, "Holes Punched (in Blocks)   : %d", statsHoles)
+		} else {
+			logMsg(true, "Removed Allows (Eclipsed)   : %d", statsEclipsed)
+			logMsg(true, "Holes Punched (in Allows)   : %d", statsHoles)
+		}
 		logMsg(true, "----------------------------------------")
 		logMsg(true, "Final Active Block CIDRs    : %d", len(finalBlocks))
 		if opts.OutAllowlist != "" {

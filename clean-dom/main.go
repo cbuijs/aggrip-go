@@ -1,9 +1,11 @@
 /*
 ==========================================================================
 Filename: clean-dom/main.go
-Version: 1.14.0-20260429
-Date: 2026-04-29 15:45 CEST
+Version: 1.15.0-20260503
+Date: 2026-05-03 16:56 CEST
 Update Trail:
+  - 1.15.0 (2026-05-03): Added preferBlocklist flag to allow blocklists to natively 
+                         supersede allowlists. Updates memory routes dynamically.
   - 1.14.0 (2026-04-29): Fixed critical CLI flag regression where --out-blocklist 
                          incorrectly bound to the sortAlgo memory address.
   - 1.13.0 (2026-04-29): Removed legacy denyAllowOverrides structures explicitly 
@@ -54,6 +56,7 @@ var (
 	outAllowlist     string
 	validTlds        string
 	optimizeAllow    bool
+	preferBlocklist  bool
 	suppressComments bool
 	lessStrict       bool
 	allowTLD         bool
@@ -95,6 +98,10 @@ func init() {
 	flag.StringVar(&validTlds, "valid-tlds", "iana", "Comma-separated list of allowed TLD registries: iana (default), opennic, hns, all, disable")
 
 	flag.BoolVar(&optimizeAllow, "optimize-allowlist", false, "Drop unused allowlist entries")
+	
+	flag.BoolVar(&preferBlocklist, "prefer-blocklist", false, "Reverse default preference: Blocklist takes precedence over allowlist")
+	flag.BoolVar(&preferBlocklist, "p", false, "Short for --prefer-blocklist")
+
 	flag.BoolVar(&suppressComments, "suppress-comments", false, "Suppress audit log of removed domains")
 
 	flag.BoolVar(&lessStrict, "less-strict", false, "Allow underscores (_) and asterisks (*) in domain names")
@@ -129,6 +136,7 @@ func init() {
 		fmt.Fprintf(os.Stderr, "      --sort <type>              Sorting algorithm (domain, alphabetically, tld) (default \"domain\")\n")
 		fmt.Fprintf(os.Stderr, "      --valid-tlds <list>        Allowed TLD registries (iana, opennic, hns, all, disable) (default \"iana\")\n")
 		fmt.Fprintf(os.Stderr, "      --optimize-allowlist       Drop unused allowlist entries\n")
+		fmt.Fprintf(os.Stderr, "  -p, --prefer-blocklist         Reverse default preference: Blocklist takes precedence over allowlist\n")
 		fmt.Fprintf(os.Stderr, "      --suppress-comments        Suppress audit log of removed domains\n")
 		fmt.Fprintf(os.Stderr, "  -l, --less-strict              Allow underscores (_) and asterisks (*) in domain names\n")
 		fmt.Fprintf(os.Stderr, "      --allow-tld                Allow Top-Level Domains (TLDs) like 'com' (Note: 'com' collapses all .com subdomains)\n")
@@ -137,7 +145,7 @@ func init() {
 		fmt.Fprintf(os.Stderr, "  -V, --version                  Show version information and exit\n")
 		fmt.Fprintf(os.Stderr, "  -h, --help                     Show this help message\n")
 		fmt.Fprintf(os.Stderr, "\nExample:\n")
-		fmt.Fprintf(os.Stderr, "  clean-dom -b ads.txt -o unbound --valid-tlds iana,opennic -v\n")
+		fmt.Fprintf(os.Stderr, "  clean-dom -b ads.txt -o unbound --valid-tlds iana,opennic -p -v\n")
 	}
 }
 

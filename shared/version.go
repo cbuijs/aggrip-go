@@ -1,8 +1,11 @@
 // ==========================================================================
 // Filename: shared/version.go
-// Version: 1.14.0-20260429
-// Date: 2026-04-29 15:45 CEST
+// Version: 1.15.0-20260503
+// Date: 2026-05-03 16:56 CEST
 // Update Trail:
+//   - 1.15.0-20260503: Introduced --prefer-blocklist flag to clean-dom and clean-ip 
+//                      to reverse default resolution, allowing blocklists to supersede 
+//                      allowlists. Updated core optimization paths and logging.
 //   - 1.14.0-20260429: Addressed CLI flag regression in clean-dom mapping to 
 //                      the wrong struct reference. Prevented boundary integer 
 //                      panic in CollapsePrefixes for /0 routing blocks.
@@ -52,7 +55,7 @@ import (
 
 // SuiteVersion defines the strictly synchronized global version for all tools natively.
 // Maintains synchronized output during CLI invocations.
-const SuiteVersion = "1.14.0-20260429"
+const SuiteVersion = "1.15.0-20260503"
 
 // PrintVersion outputs the standardized version string for the requesting tool
 // and securely exits the process to bypass execution natively. This avoids 
