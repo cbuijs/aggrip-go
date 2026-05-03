@@ -1,8 +1,12 @@
 // ==========================================================================
 // Filename: shared/version.go
-// Version: 1.16.0-20260503
-// Date: 2026-05-03 17:35 CEST
+// Version: 1.17.0-20260503
+// Date: 2026-05-03 18:30 CEST
 // Update Trail:
+//   - 1.17.0-20260503: Comprehensive comment audit logs added ensuring all 
+//                      removed, modified, or converted domains are explicitly
+//                      tracked natively within both the generated blocklist and
+//                      allowlist output configurations identically. Fixed apex mapping bugs.
 //   - 1.16.0-20260503: Added --apex-only parameter to clean-dom. Integrated Public 
 //                      Suffix List (PSL) natively into shared bounds for high-speed 
 //                      eTLD+1 extraction and sub-domain stripping.
@@ -58,7 +62,7 @@ import (
 
 // SuiteVersion defines the strictly synchronized global version for all tools natively.
 // Maintains synchronized output during CLI invocations.
-const SuiteVersion = "1.16.0-20260503"
+const SuiteVersion = "1.17.0-20260503"
 
 // PrintVersion outputs the standardized version string for the requesting tool
 // and securely exits the process to bypass execution natively. This avoids 

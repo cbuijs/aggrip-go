@@ -1,9 +1,11 @@
 /*
 ==========================================================================
 Filename: clean-dom/main.go
-Version: 1.16.0-20260503
-Date: 2026-05-03 17:35 CEST
+Version: 1.17.0-20260503
+Date: 2026-05-03 18:30 CEST
 Update Trail:
+  - 1.17.0 (2026-05-03): Enforced comprehensive allowlist and blocklist comment 
+                         generation for all modified or removed domains natively.
   - 1.16.0 (2026-05-03): Added --apex-only parameter stripping all sub-domains natively.
   - 1.15.0 (2026-05-03): Added preferBlocklist flag to allow blocklists to natively 
                          supersede allowlists. Updates memory routes dynamically.

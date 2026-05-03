@@ -1,14 +1,16 @@
 /*
 ==========================================================================
 Filename: clean-ip/main.go
-Version: 1.15.0-20260503
-Date: 2026-05-03 16:56 CEST
+Version: 1.17.0-20260503
+Date: 2026-05-03 18:30 CEST
 Description: Enterprise-grade IP blocklist optimizer. High-speed Go port
              of clean-ip.py. Aggregates IPs, CIDRs, ranges. Cross-references
              against allowlists, collapses redundant subnets, performs
              mathematical hole-punching, and exports to firewall formats.
 
 Changes:
+- v1.17.0 (2026-05-03): Updated formatter to explicitly push audit comments for 
+                        allowlist removals natively into the allowlist export file.
 - v1.15.0 (2026-05-03): Introduced PreferBlocklist logic to symmetrically invert 
                         hole-punching and eclipse evaluation bounds. Allows 
                         blocklists to safely drop and fracture allowlist bounds.
@@ -440,7 +442,7 @@ func main() {
 					usedAllows[allow] = true
 					isAllowed = true
 					if !opts.SuppressComments {
-						removedLog = append(removedLog, fmt.Sprintf("# %s - Removed because allowlisted by encompassing subnet %s", block, allow))
+						removedLog = append(removedLog, fmt.Sprintf("# %s - Removed from blocklist (Allowlisted by encompassing subnet %s)", block, allow))
 					}
 					statsEclipsed++
 					break
@@ -487,7 +489,7 @@ func main() {
 			if !opts.OptimizeAllowlist || usedAllows[allow] {
 				finalAllows = append(finalAllows, allow)
 			} else if !opts.SuppressComments {
-				removedAllowsLog = append(removedAllowsLog, fmt.Sprintf("# %s - Removed from allowlist because it is unused", allow))
+				removedAllowsLog = append(removedAllowsLog, fmt.Sprintf("# %s - Removed from allowlist (Unused)", allow))
 			}
 		}
 
@@ -505,7 +507,7 @@ func main() {
 				if allow.Addr().Is4() == block.Addr().Is4() && block.Contains(allow.Addr()) && block.Bits() <= allow.Bits() {
 					isBlocked = true
 					if !opts.SuppressComments {
-						removedAllowsLog = append(removedAllowsLog, fmt.Sprintf("# %s - Removed because eclipsed by blocklist subnet %s", allow, block))
+						removedAllowsLog = append(removedAllowsLog, fmt.Sprintf("# %s - Removed from allowlist (Eclipsed by blocklist subnet %s)", allow, block))
 					}
 					statsEclipsed++
 					break
@@ -595,6 +597,13 @@ func main() {
 		defer f.Close()
 
 		bwAllow := shared.NewWriter(f)
+
+		// Ensure allowlist removed logs (e.g. unused or eclipsed) are output securely inside the allowlist config explicitly
+		if !opts.SuppressComments {
+			for _, item := range removedAllowsLog {
+				bwAllow.WriteString(item + "\n")
+			}
+		}
 		
 		if !opts.PreferBlocklist {
 			// Direct mapping when blocklist holes do not alter standard allow sequences
@@ -650,6 +659,7 @@ func main() {
 		for _, item := range removedLog {
 			bwBlock.WriteString(item + "\n")
 		}
+		// Maintain the cross-log of removed allows in the blocklist as a comprehensive audit trail globally
 		for _, item := range removedAllowsLog {
 			bwBlock.WriteString(item + "\n")
 		}

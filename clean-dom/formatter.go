@@ -1,12 +1,16 @@
 /*
 ==========================================================================
 Filename: clean-dom/formatter.go
-Version: 1.15.0-20260503
-Date: 2026-05-03 16:56 CEST
+Version: 1.17.0-20260503
+Date: 2026-05-03 18:30 CEST
 Description: Handles deduplication, formatting, layout mapping, output 
              generation, comment injection, and disk writing operations.
 
 Update Trail:
+  - 1.17.0 (2026-05-03): Comprehensive updates ensuring blocklist and allowlist 
+                         outputs uniformly contain explicit audit comments whenever 
+                         a domain is modified, converted, eclipsed, or dropped.
+                         Fixed apex-mapping conversion log tracking logic.
   - 1.15.0 (2026-05-03): Integrated preferBlocklist logic to selectively invert 
                          collision resolution, allowing blocklists to completely 
                          eclipse overlapping allowlists natively.
@@ -79,12 +83,16 @@ func buildOutputs(
 	logMsg("--- Stage 5: Processing & Optimizing %s ---", passName)
 
 	filteredBlocks := make(map[string]struct{})
+	
+	// Distinct audit log trackers providing transparent mapping across output environments natively.
 	var removedLogGeneral, removedLogDedup, removedLogParentBlocked, removedLogUnusedAllows, removedLogInvalids []string
+	var removedLogInvalidAllows, removedLogEclipsedAllows []string
+
 	usedAllows := make(map[string]struct{})
 	loggedInvalids := make(map[string]struct{})
 
 	statsAllowlisted, statsTopN, statsDeduped, statsInvalidStruct := 0, 0, 0, 0
-	statsEclipsedAllows := 0
+	statsEclipsedAllows, statsInvalidAllows := 0, 0
 
 	for _, domain := range blockDomains {
 		// Validates structural boundaries, strict RFC limits, and embedded TLD dictionaries.
@@ -95,7 +103,7 @@ func buildOutputs(
 				loggedInvalids[domain] = struct{}{}
 				if !suppressComments {
 					// Format aligned to map the specific domain safely above its apex equivalent.
-					removedLogInvalids = append(removedLogInvalids, fmt.Sprintf("# %s - Removed (Invalid): %v", domain, err))
+					removedLogInvalids = append(removedLogInvalids, fmt.Sprintf("# %s - Removed from blocklist (Invalid): %v", domain, err))
 				}
 				statsInvalidStruct++
 			}
@@ -116,7 +124,7 @@ func buildOutputs(
 						allowed = true
 						if !suppressComments {
 							// Formats the comment to explicitly extract and map against the parent/apex node.
-							removedLogGeneral = append(removedLogGeneral, fmt.Sprintf("# %s - Allowlisted subdomain removed: %s", p, domain))
+							removedLogGeneral = append(removedLogGeneral, fmt.Sprintf("# %s - Removed from blocklist (Covered by allowlist rule %s)", domain, p))
 						}
 						statsAllowlisted++
 						break
@@ -138,7 +146,7 @@ func buildOutputs(
 			}
 			if !inTopN {
 				if !suppressComments {
-					removedLogGeneral = append(removedLogGeneral, fmt.Sprintf("# %s - Removed (Not in Top-N list)", domain))
+					removedLogGeneral = append(removedLogGeneral, fmt.Sprintf("# %s - Removed from blocklist (Not in Top-N list)", domain))
 				}
 				statsTopN++
 				continue
@@ -168,7 +176,7 @@ func buildOutputs(
 		if lastKept != "" && strings.HasPrefix(curr, lastKept) && len(curr) > len(lastKept) && curr[len(lastKept)] == '.' {
 			if !suppressComments {
 				// Formats the comment placing the apex first for proper alphabetical sequence alignment.
-				removedLogDedup = append(removedLogDedup, fmt.Sprintf("# %s - Redundant subdomain removed: %s", shared.ReverseASCII(lastKept), shared.ReverseASCII(curr)))
+				removedLogDedup = append(removedLogDedup, fmt.Sprintf("# %s - Removed from blocklist (Redundant subdomain of %s)", shared.ReverseASCII(curr), shared.ReverseASCII(lastKept)))
 			}
 			statsDeduped++
 			continue
@@ -184,8 +192,12 @@ func buildOutputs(
 	statsAllowIgnored := 0
 
 	for allowDom := range allowDomains {
-		// Ensure corrupted allow domains are skipped without polluting firewall configurations.
+		// Ensure corrupted allow domains are safely trapped, skipping them and pushing audit comments.
 		if err := shared.ValidateDomain(allowDom, lessStrict, allowTLD); err != nil {
+			if !suppressComments {
+				removedLogInvalidAllows = append(removedLogInvalidAllows, fmt.Sprintf("# %s - Removed from allowlist (Invalid): %v", allowDom, err))
+			}
+			statsInvalidAllows++
 			continue
 		}
 
@@ -213,7 +225,9 @@ func buildOutputs(
 					// Inverted priority: The allow domain is completely eclipsed and disabled by the block parent
 					isEclipsed = true
 					if !suppressComments {
-						removedLogParentBlocked = append(removedLogParentBlocked, fmt.Sprintf("# %s - Allowlist entry eclipsed by blocklist match: %s", allowDom, parent))
+						msg := fmt.Sprintf("# %s - Removed from allowlist (Eclipsed by blocklist match: %s)", allowDom, parent)
+						removedLogParentBlocked = append(removedLogParentBlocked, msg) // Audit trail mapped into blocklist
+						removedLogEclipsedAllows = append(removedLogEclipsedAllows, msg) // Audit trail mapped into allowlist
 					}
 					statsEclipsedAllows++
 					break
@@ -247,7 +261,7 @@ func buildOutputs(
 			for dom := range allowDomains {
 				// We also drop invalid allowlists directly preventing broken config generations.
 				if err := shared.ValidateDomain(dom, lessStrict, allowTLD); err != nil {
-					continue
+					continue // Already validated and logged in the earlier loop cleanly
 				}
 				if _, ok := usedAllows[dom]; !ok {
 					if !suppressComments {
@@ -285,7 +299,7 @@ func buildOutputs(
 		}
 	}
 
-	hasAllowPayload := len(finalAllows) > 0 || (optimizeAllow && !suppressComments && len(removedLogUnusedAllows) > 0)
+	hasAllowPayload := len(finalAllows) > 0 || (!suppressComments && (len(removedLogUnusedAllows) > 0 || len(removedLogInvalidAllows) > 0 || len(removedLogEclipsedAllows) > 0))
 	outputFormats := []string{outputFmt}
 	if outputFmt == "all" {
 		outputFormats = []string{"domain", "hosts", "adblock", "dnsmasq", "unbound", "rpz", "routedns", "squid"}
@@ -393,9 +407,32 @@ func buildOutputs(
 				}
 			}
 
-			// Inject the unused allowlist comments into the allowlist slice directly
+			// Inject detailed audit comments mapping removed entries directly into the allowlist slice natively
 			if !suppressComments {
 				allowSlice = append(allowSlice, removedLogUnusedAllows...)
+				allowSlice = append(allowSlice, removedLogInvalidAllows...)
+				allowSlice = append(allowSlice, removedLogEclipsedAllows...)
+
+				// Extract and append relevant conversions preserving audit trails inside the allowlist explicitly
+				for _, conv := range conversionLog {
+					cleanConv := strings.TrimSpace(strings.TrimPrefix(conv, "#"))
+					parts := strings.SplitN(cleanConv, " - ", 2)
+					if len(parts) == 2 {
+						domCheck := parts[0]
+						
+						// Correctly map target domain for Apex conversions explicitly preventing them from dropping
+						if strings.Contains(parts[1], "mapped to: ") {
+							subParts := strings.Split(parts[1], "mapped to: ")
+							if len(subParts) == 2 {
+								domCheck = strings.TrimSuffix(subParts[1], ")")
+							}
+						}
+						
+						if _, exists := finalAllows[domCheck]; exists {
+							allowSlice = append(allowSlice, conv)
+						}
+					}
+				}
 			}
 
 			// Sort the allowlist organically pulling comments above their functional nodes to preserve context.
@@ -488,6 +525,15 @@ func buildOutputs(
 					parts := strings.SplitN(cleanConv, " - ", 2)
 					if len(parts) == 2 {
 						domCheck := parts[0]
+						
+						// Correctly map target domain for Apex conversions explicitly preventing them from dropping
+						if strings.Contains(parts[1], "mapped to: ") {
+							subParts := strings.Split(parts[1], "mapped to: ")
+							if len(subParts) == 2 {
+								domCheck = strings.TrimSuffix(subParts[1], ")")
+							}
+						}
+						
 						exists := false
 						if fmtType == "hosts" {
 							_, exists = filteredBlocks[domCheck]
@@ -636,6 +682,9 @@ func buildOutputs(
 		logMsg("Final Active Domains        : %d (%d in HOSTS format)", len(finalActive), len(filteredBlocks))
 		if outputFmt == "all" || outAllowlist != "" {
 			logMsg("Exported Allowlist Domains  : %d", len(finalAllows))
+			if statsInvalidAllows > 0 {
+				logMsg("Dropped Allows (Invalid)    : %d", statsInvalidAllows)
+			}
 		}
 		logMsg("====================================================")
 	}
