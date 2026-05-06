@@ -1,14 +1,15 @@
 /*
 ==========================================================================
 Filename: clean-ip/main.go
-Version: 1.17.0-20260503
-Date: 2026-05-03 18:30 CEST
+Version: 1.18.0-20260506
+Date: 2026-05-06 16:30 CEST
 Description: Enterprise-grade IP blocklist optimizer. High-speed Go port
              of clean-ip.py. Aggregates IPs, CIDRs, ranges. Cross-references
              against allowlists, collapses redundant subnets, performs
              mathematical hole-punching, and exports to firewall formats.
 
 Changes:
+- v1.18.0 (2026-05-06): Added descriptive tool summary to --help output.
 - v1.17.0 (2026-05-03): Updated formatter to explicitly push audit comments for 
                         allowlist removals natively into the allowlist export file.
 - v1.15.0 (2026-05-03): Introduced PreferBlocklist logic to symmetrically invert 
@@ -317,6 +318,8 @@ func main() {
 
 	// Custom formatted usage explicitly declaring standard flags across the suite
 	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "clean-ip - Enterprise-grade IP Blocklist Optimizer\n")
+		fmt.Fprintf(os.Stderr, "Aggregates networks, cross-references against allowlists, collapses redundant subnets, performs mathematical hole-punching, and exports to firewall formats.\n\n")
 		fmt.Fprintf(os.Stderr, "Usage of clean-ip:\n\n")
 		fmt.Fprintf(os.Stderr, "Core Options:\n")
 		fmt.Fprintf(os.Stderr, "  -b, --blocklist <path/url>     Path(s) or URL(s) to the IP blocklist(s) (Required, can specify multiple)\n")

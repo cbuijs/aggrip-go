@@ -1,8 +1,8 @@
 /*
 ==========================================================================
 Filename: undup/main.go
-Version: 1.9.0-20260429
-Date: 2026-04-29 15:11 CEST
+Version: 1.10.0-20260506
+Date: 2026-05-06 16:30 CEST
 Description: Blazing fast binary-level domain deduplicator in Golang. 
              Removes redundant subdomains when parent domains exist in 
              the feed. Prioritizes low-latency and high-performance via
@@ -10,6 +10,7 @@ Description: Blazing fast binary-level domain deduplicator in Golang.
              Supports optional less-strict validation allowing '_' and '*'.
 
 Changes/Fixes:
+- v1.10.0 (2026-05-06): Added descriptive tool summary to --help output.
 - v1.9.0 (2026-04-29): Shifted internal memory buffering into the centralized
                        shared bounds avoiding redundant configurations natively.
 - v1.8.0 (2026-04-29): Comprehensive purge of hallucinated adverbs from comments.
@@ -76,6 +77,8 @@ func init() {
 
 	// Customize the usage output to cleanly reflect dual-flag suite standard.
 	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "undup - Blazing Fast Binary-Level Domain Deduplicator\n")
+		fmt.Fprintf(os.Stderr, "Specialized, low-latency deduplication engine that rapidly removes redundant subdomains when their parent domains exist in the same feed.\n\n")
 		fmt.Fprintf(os.Stderr, "Usage of undup:\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		fmt.Fprintf(os.Stderr, "  -i, --input <path>     Input file path (default: STDIN)\n")

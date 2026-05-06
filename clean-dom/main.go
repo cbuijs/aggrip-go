@@ -1,9 +1,10 @@
 /*
 ==========================================================================
 Filename: clean-dom/main.go
-Version: 1.18.0-20260503
-Date: 2026-05-03 18:51 CEST
+Version: 1.19.0-20260506
+Date: 2026-05-06 16:30 CEST
 Update Trail:
+  - 1.19.0 (2026-05-06): Added descriptive tool summary to --help output.
   - 1.18.0 (2026-05-03): Added --report <file> parameter explicitly tracking 
                          modifications, removals, and source origins globally.
                          Implemented zero-cost telemetry arrays dynamically scaling.
@@ -135,6 +136,8 @@ func init() {
 
 	// Custom formatted usage explicitly declaring standard flags across the suite safely
 	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "clean-dom - Enterprise-grade DNS Blocklist Optimizer\n")
+		fmt.Fprintf(os.Stderr, "Consolidates multiple DNS blocklists, deduplicates via O(N log N) reverse-string tree sort, translates Punycode, and dynamically routes Adblock rules.\n\n")
 		fmt.Fprintf(os.Stderr, "Usage of clean-dom:\n\n")
 		fmt.Fprintf(os.Stderr, "Core Options:\n")
 		fmt.Fprintf(os.Stderr, "  -b, --blocklist <path/url>     Path(s) or URL(s) to the DNS blocklist(s) (Required, can specify multiple)\n")

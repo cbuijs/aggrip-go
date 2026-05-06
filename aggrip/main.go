@@ -1,9 +1,10 @@
 /*
 ==========================================================================
 Filename: aggrip/main.go
-Version: 1.9.0-20260429
-Date: 2026-04-29 15:11 CEST
+Version: 1.10.0-20260506
+Date: 2026-05-06 16:30 CEST
 Update Trail:
+  - v1.10.0 (2026-05-06): Added descriptive tool summary to --help output.
   - v1.9.0 (2026-04-29): Integrated centralized shared.NewScanner and shared.NewWriter 
                          for uniform 1MB high-speed memory buffering.
   - v1.8.0 (2026-04-29): Comprehensive audit. Purged hallucinated adverb trails 
@@ -73,6 +74,8 @@ func init() {
 
 	// Custom usage output for the CLI tool to clearly map short and long flags
 	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "aggrip - High-Speed IP to CIDR Aggregator\n")
+		fmt.Fprintf(os.Stderr, "Reads raw lists of IP addresses and CIDR blocks from streams, outputting a merged and mathematically optimized CIDR list.\n\n")
 		fmt.Fprintf(os.Stderr, "Usage of aggrip:\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		fmt.Fprintf(os.Stderr, "  -i, --input <path>     Input file path (default: STDIN)\n")

@@ -1,8 +1,8 @@
 /*
 ==========================================================================
 Filename: domsort/main.go
-Version: 1.20.0-20260506
-Date: 2026-05-06 16:26 CEST
+Version: 1.21.0-20260506
+Date: 2026-05-06 16:30 CEST
 Description: High-performance segmented layout-preserving domain sort.
              Reads streams, identifies logical sections based on non-domain
              text, and strictly validates/sorts domains within those sections
@@ -11,6 +11,7 @@ Description: High-performance segmented layout-preserving domain sort.
              less-strict validation ('_', '*'), and reverse sorting.
 
 Update Trail:
+  - 1.21.0 (2026-05-06): Added descriptive tool summary to --help output.
   - 1.20.0 (2026-05-06): Added global `--undup` (-u) feature strictly removing 
                          subdomains and exact duplicates globally.
                          Added alphabetical segment sorting natively when `-a` 
@@ -79,6 +80,8 @@ func init() {
 
 	// Customize the usage output to cleanly reflect dual-flag suite standard.
 	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "domsort - Segmented Layout-Preserving Domain Sorter\n")
+		fmt.Fprintf(os.Stderr, "Identifies logical sections in mixed-text streams (e.g., comments) and strictly sorts domains within boundaries while preserving original document layout.\n\n")
 		fmt.Fprintf(os.Stderr, "Usage of domsort:\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		fmt.Fprintf(os.Stderr, "  -i, --input <path>       Input file path (default: STDIN)\n")
