@@ -1,7 +1,7 @@
 # ==========================================================================
 # Filename: .github/workflows/release.yml
-# Version: 1.5.0
-# Date: 2026-04-29
+# Version: 1.6.0
+# Date: 2026-05-06
 # Description: Automated build and release pipeline for aggrip-go suite.
 #              Compiles static, stripped binaries for darwin/arm64, 
 #              linux/arm64, and linux/amd64 on every push to main.
@@ -29,8 +29,8 @@ jobs:
       - name: Setup Go Environment
         uses: actions/setup-go@v5
         with:
-          # clean-dom requires 1.25.0+ per documentation
-          go-version: '1.25.x'
+          # suite requires 1.26.1+ per documentation
+          go-version: '1.26.x'
           cache: true
 
       - name: Extract Short Commit Hash
@@ -41,8 +41,8 @@ jobs:
         run: |
           mkdir -p dist
           
-          # Define compilation matrices
-          TOOLS=("aggrip" "clean-dom" "clean-ip" "undup")
+          # Define compilation matrices natively including the new domsort tool
+          TOOLS=("aggrip" "clean-dom" "clean-ip" "domsort" "undup")
           TARGETS=("darwin/arm64" "linux/arm64" "linux/amd64")
           
           for tool in "${TOOLS[@]}"; do

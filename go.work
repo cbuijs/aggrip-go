@@ -4,6 +4,7 @@ use (
 	./aggrip
 	./clean-dom
 	./clean-ip
+	./domsort
 	./shared
 	./undup
 )
