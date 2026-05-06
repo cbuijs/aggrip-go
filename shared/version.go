@@ -1,8 +1,10 @@
 // ==========================================================================
 // Filename: shared/version.go
-// Version: 1.19.0-20260506
-// Date: 2026-05-06 16:10 CEST
+// Version: 1.20.0-20260506
+// Date: 2026-05-06 16:26 CEST
 // Update Trail:
+//   - 1.20.0-20260506: Added `--undup` (-u) feature and layout-alphabetical 
+//                      sorting matrix to `domsort`. Bumped suite version.
 //   - 1.19.0-20260506: Introduced `domsort` Golang port to the aggrip-go suite.
 //                      Added `domsort` to go.work and release matrices. 
 //                      Maintains layout-preserving segmented sorting constraints natively.
@@ -69,7 +71,7 @@ import (
 
 // SuiteVersion defines the strictly synchronized global version for all tools natively.
 // Maintains synchronized output during CLI invocations.
-const SuiteVersion = "1.19.0-20260506"
+const SuiteVersion = "1.20.0-20260506"
 
 // PrintVersion outputs the standardized version string for the requesting tool
 // and securely exits the process to bypass execution natively. This avoids 
