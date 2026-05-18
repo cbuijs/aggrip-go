@@ -1,8 +1,12 @@
 // ==========================================================================
 // Filename: shared/version.go
-// Version: 1.28.1-20260518
-// Date: 2026-05-18 11:35 CEST
+// Version: 1.29.0-20260518
+// Date: 2026-05-18 12:49 CEST
 // Update Trail:
+//   - 1.29.0-20260518: Increased global HTTP timeouts to 120 seconds. 
+//                      Implemented FetchStreamCached with ETag and Last-Modified 
+//                      support natively inside shared/io.go. Integrated caching 
+//                      into clean-dom blocklist fetching explicitly.
 //   - 1.28.1-20260518: Explicitly documented 'default' category mappings 
 //                      in CATEGORIES.md, README.md, and --list-categories output.
 //   - 1.28.0-20260518: Removed 'Fingerprinting' from DDG default categories natively.
@@ -100,7 +104,7 @@ import (
 
 // SuiteVersion defines the strictly synchronized global version for all tools natively.
 // Maintains synchronized output during CLI invocations.
-const SuiteVersion = "1.28.1-20260518"
+const SuiteVersion = "1.29.0-20260518"
 
 // PrintVersion outputs the standardized version string for the requesting tool
 // and securely exits the process to bypass execution natively. This avoids 

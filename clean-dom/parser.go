@@ -1,13 +1,16 @@
 /*
 ==========================================================================
 Filename: clean-dom/parser.go
-Version: 1.18.0-20260503
-Date: 2026-05-03 18:51 CEST
+Version: 1.19.0-20260518
+Date: 2026-05-18 12:49 CEST
 Description: Handles file I/O, format detection, Adblock translation, 
              and parallel bulk ingestion of raw list payloads. Strict
              path rejection protects DNS zone integrity.
 
 Update Trail:
+  - 1.19.0 (2026-05-18): Integrated centralized FetchStreamCached utilizing 
+                         ETag and Last-Modified caching dynamically. Increased 
+                         stream timeout to 120 seconds preventing EOF drops.
   - 1.18.0 (2026-05-03): Integrated telemetry arrays structurally mapping modifications 
                          and sources natively when `--report` is evaluated dynamically.
   - 1.16.0 (2026-05-03): Integrated dynamic mapping pushing sub-domains directly
@@ -42,6 +45,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"golang.org/x/net/idna"
 	"aggrip-go/shared"
@@ -373,7 +377,9 @@ func readDomainsBulk(source string, isTopN bool, listType string, reportMode boo
 		result.SourceMap = make(map[string]string)
 	}
 
-	stream, err := shared.FetchStream(source)
+	// Leverage centralized cached engine enabling high-speed offline capabilities
+	// and respecting ETags / Last-Modified tracking structurally.
+	stream, err := shared.FetchStreamCached(source, workDir, 120*time.Second)
 	if err != nil {
 		log.Printf("Error reading source '%s': %v\n", source, err)
 		return result
