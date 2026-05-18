@@ -1,14 +1,15 @@
 /*
 ==========================================================================
 Filename: clean-dom/ddg.go
-Version: 1.27.1-20260518
-Date: 2026-05-18 11:20 CEST
+Version: 1.28.0-20260518
+Date: 2026-05-18 11:25 CEST
 Description: Handles DuckDuckGo Tracker Radar integration. Fetches the complete
              GitHub repository ZIP archive in memory, utilizing ETag/If-None-Match
              caching to prevent redundant downloads and rate-limiting. Extracts 
              JSON files concurrently, filtering domains by matching categories.
              
 Update Trail:
+  - 1.28.0 (2026-05-18): Removed Fingerprinting from default categories block natively.
   - 1.27.1 (2026-05-18): Fixed bug where dynamic Fingerprinting injection 
                          shadowed and bypassed "Observed" category evaluation.
   - 1.27.0 (2026-05-18): Integrated "Fingerprinting" as a dynamic pseudo-category.
@@ -45,8 +46,8 @@ import (
 const ddgZipUrl = "https://github.com/duckduckgo/tracker-radar/archive/refs/heads/main.zip"
 
 // Recommended enterprise best-practice DuckDuckGo categories.
-// Added Fingerprinting natively to strictly mitigate device tracking evasion.
-const ddgDefaultBlock = "Advertising,Ad Motivated Tracking,Analytics,Audience Measurement,Action Pixels,Session Replay,Third-Party Analytics Marketing,Fingerprinting"
+// Explicitly excluded Fingerprinting and Observed from default recommendations natively.
+const ddgDefaultBlock = "Advertising,Ad Motivated Tracking,Analytics,Audience Measurement,Action Pixels,Session Replay,Third-Party Analytics Marketing"
 const ddgDefaultAllow = "CDN,SSO,Embedded Content,Non-Tracking"
 
 // CnameStruct extracts exact CNAME aliases natively bypassing complex parsing rules.

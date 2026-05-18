@@ -12,9 +12,9 @@ High-performance, low-latency, and secure Go utilities for optimizing, deduplica
 
 * **Concurrent Ingestion:** Streams massive lists via HTTP/HTTPS or local paths using Go concurrency.
 
-* **DuckDuckGo Tracker Radar Integration:** Pulls the complete tracker dataset dynamically in-memory, parses JSONs concurrently, and generates blocks or allows based on native category matching. View categories using `--list-categories`.
+* **DuckDuckGo Tracker Radar Integration:** Pulls the complete tracker dataset dynamically in-memory, parses JSONs concurrently, and generates blocks or allows based on native category matching. View categories using `--list-categories`. Supplying `default` to the block categories natively maps: `Advertising, Ad Motivated Tracking, Analytics, Audience Measurement, Action Pixels, Session Replay, Third-Party Analytics Marketing`.
 
-* **Cloudflare Radar API Integration:** Queries the authenticated Cloudflare Radar API to map the Top 1000 Domains by category directly into active firewall scopes. View categories using `--list-categories`.
+* **Cloudflare Radar API Integration:** Queries the authenticated Cloudflare Radar API to map the Top 1000 Domains by category directly into active firewall scopes. View categories using `--list-categories`. Supplying `default` to the block categories natively maps: `Malware, Phishing, Spyware, Botnet, Command and Control, Spam`.
 
 * **Format Autodetection:** Upfront heuristic format detection (hosts, adblock, routedns, squid, domain).
 
@@ -37,8 +37,8 @@ clean-dom -b https://example.com/ads.txt -a local-allow.txt -o unbound --out-blo
 # List Available External Integration Categories
 clean-dom --list-categories
 
-# DuckDuckGo and Cloudflare Integrations
-clean-dom --ddg-block-categories "Advertising,Analytics" --cf-block-categories "Malware,Phishing" --cf-api-token "YOUR_TOKEN" -o domain -v
+# DuckDuckGo and Cloudflare Integrations (Using the 'default' keyword to map best practices)
+clean-dom --ddg-block-categories "default" --cf-block-categories "default" --cf-api-token "YOUR_TOKEN" -o domain -v
 
 # Compressed HOSTS File Routing (Output mapping up to 15 domains per single IP line)
 clean-dom -b https://example.com/ads.txt -o hosts --compress-hosts=15 --out-blocklist filter.hosts -v
@@ -149,81 +149,4 @@ go build -ldflags="-s -w" -o domsort ./domsort
 
 # Build undup
 go build -ldflags="-s -w" -o undup ./undup
-~~~eof
-
-~~~markdown:Categories Guide:cbuijs/aggrip-go/aggrip-go-92f4f5fded4ef5cec595e0ff6ce55e8252ab741a/CATEGORIES.md
-# External Integrations & Category Best Practices
-
-The `clean-dom` utility natively supports pulling high-fidelity domain intelligence via **DuckDuckGo Tracker Radar** and the **Cloudflare Radar API**. 
-
-You can preview all available categories in the console using the `--list-categories` flag:
-```bash
-clean-dom --list-categories
-
----
-
-## 1. DuckDuckGo Tracker Radar
-
-DuckDuckGo Tracker Radar provides an open-source dataset evaluating thousands of third-party domains. Because tracking mechanisms overlap with essential website functionality, configuring these categories incorrectly can break target websites.
-
-**Best-Practice Blocklist Categories**
-Use these categories with `--ddg-block-categories` to maximize privacy and reduce tracking telemetry.
-* `Advertising`
-* `Ad Motivated Tracking`
-* `Analytics`
-* `Audience Measurement`
-* `Action Pixels`
-* `Session Replay`
-* `Third-Party Analytics Marketing`
-
-**Best-Practice Allowlist Categories**
-Use these categories with `--ddg-allow-categories` to prevent blocking critical web infrastructure and authentication flows.
-* `CDN` (Content Delivery Networks storing images/CSS/JS)
-* `SSO` (Single Sign-On protocols like OAuth/SAML)
-* `Embedded Content` (Video players, social media embeds)
-* `Non-Tracking` (Domains strictly necessary for the application to function)
-
----
-
-## 2. Cloudflare Radar API
-
-Cloudflare Radar tracks live malicious activity, threats, and application trends globally. This integration requires an active Cloudflare API token provided via `--cf-api-token` or the `CF_API_TOKEN` environment variable.
-
-**Best-Practice Blocklist Categories**
-Use these categories with `--cf-block-categories` to harden network security against active threats.
-* `Malware`
-* `Phishing`
-* `Spyware`
-* `Botnet`
-* `Command and Control`
-* `Spam`
-
-**Situational Filtering Categories**
-These categories are highly dependent on your network environment (e.g., corporate/enterprise vs. home).
-* `Proxy` / `Anonymizer` (Corporate environments generally block these to prevent bypass)
-* `Adult Themes` (Standard for family-safe filtering)
-* `Gambling` (Standard for corporate/family-safe filtering)
-
-**Best-Practice Allowlist Categories**
-Use these categories with `--cf-allow-categories` if you are generating strict, default-deny environments that need basic web architecture whitelisted.
-* `Content Delivery Networks`
-
----
-
-## Example Complex Execution
-
-This pipeline command utilizes both services simultaneously. It securely blocks DDG trackers and Cloudflare threats while explicitly injecting CDN and SSO bounds into the allowlist to ensure users can still log in and view un-broken websites.
-
-```bash
-export CF_API_TOKEN="YOUR_CLOUDFLARE_TOKEN"
-
-clean-dom \
-  --ddg-block-categories "Advertising,Analytics,Session Replay" \
-  --ddg-allow-categories "CDN,SSO,Embedded Content" \
-  --cf-block-categories "Malware,Phishing,Spyware,Botnet" \
-  -o unbound \
-  --out-blocklist local-zone.conf \
-  --out-allowlist local-allow.conf \
-  -v
-~~~eof
 

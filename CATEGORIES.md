@@ -4,10 +4,8 @@ The `clean-dom` utility natively supports pulling high-fidelity domain intellige
 
 You can preview all available categories in the console using the `--list-categories` flag:
 
-```
 clean-dom --list-categories
 
-```
 
 ## 1. DuckDuckGo Tracker Radar
 
@@ -15,8 +13,8 @@ DuckDuckGo Tracker Radar provides an open-source dataset evaluating thousands of
 
 **Note on CNAMEs and Fingerprinting:** The `clean-dom` parser explicitly extracts CNAME cloak aliases, applying identical tracking rules to them automatically. It also maps "Fingerprinting" as a dynamic pseudo-category if values exist in the API matrix. Top Initiators are intentionally ignored to prevent accidentally blocking essential first-party publishers.
 
-**Best-Practice Blocklist Categories**
-Use these categories with `--ddg-block-categories` to maximize privacy and reduce tracking telemetry.
+**Best-Practice Blocklist Categories (Mapped to `default`)**
+Use these categories with `--ddg-block-categories` or specify `default` to maximize privacy and reduce tracking telemetry.
 
 * `Advertising`
 
@@ -32,10 +30,8 @@ Use these categories with `--ddg-block-categories` to maximize privacy and reduc
 
 * `Third-Party Analytics Marketing`
 
-* `Fingerprinting`
-
-**Best-Practice Allowlist Categories**
-Use these categories with `--ddg-allow-categories` to prevent blocking critical web infrastructure and authentication flows.
+**Best-Practice Allowlist Categories (Mapped to `default`)**
+Use these categories with `--ddg-allow-categories` or specify `default` to prevent blocking critical web infrastructure and authentication flows.
 
 * `CDN` (Content Delivery Networks storing images/CSS/JS)
 
@@ -49,8 +45,8 @@ Use these categories with `--ddg-allow-categories` to prevent blocking critical 
 
 Cloudflare Radar tracks live malicious activity, threats, and application trends globally. This integration requires an active Cloudflare API token provided via `--cf-api-token` or the `CF_API_TOKEN` environment variable.
 
-**Best-Practice Blocklist Categories**
-Use these categories with `--cf-block-categories` to harden network security against active threats.
+**Best-Practice Blocklist Categories (Mapped to `default`)**
+Use these categories with `--cf-block-categories` or specify `default` to harden network security against active threats.
 
 * `Malware`
 
@@ -65,7 +61,7 @@ Use these categories with `--cf-block-categories` to harden network security aga
 * `Spam`
 
 **Situational Filtering Categories**
-These categories are highly dependent on your network environment (e.g., corporate/enterprise vs. home).
+These categories are highly dependent on your network environment (e.g., corporate/enterprise vs. home) and are *not* included in the default mapping.
 
 * `Proxy` / `Anonymizer` (Corporate environments generally block these to prevent bypass)
 
@@ -73,26 +69,23 @@ These categories are highly dependent on your network environment (e.g., corpora
 
 * `Gambling` (Standard for corporate/family-safe filtering)
 
-**Best-Practice Allowlist Categories**
-Use these categories with `--cf-allow-categories` if you are generating strict, default-deny environments that need basic web architecture whitelisted.
+**Best-Practice Allowlist Categories (Mapped to `default`)**
+Use these categories with `--cf-allow-categories` or specify `default` if you are generating strict, default-deny environments that need basic web architecture whitelisted.
 
 * `Content Delivery Networks`
 
 ## Example Complex Execution
 
-This pipeline command utilizes both services simultaneously. It securely blocks DDG trackers, fingerprinting attempts, cloaked CNAME aliases, and Cloudflare threats while explicitly injecting CDN and SSO bounds into the allowlist to ensure users can still log in and view un-broken websites.
+This pipeline command utilizes both services simultaneously. It securely blocks DDG trackers, cloaked CNAME aliases, and Cloudflare threats while explicitly injecting CDN and SSO bounds into the allowlist to ensure users can still log in and view un-broken websites. It uses the `default` keyword to map the best-practice arrays documented above.
 
-```
 export CF_API_TOKEN="YOUR_CLOUDFLARE_TOKEN"
 
 clean-dom \
-  --ddg-block-categories "Advertising,Analytics,Session Replay,Fingerprinting" \
-  --ddg-allow-categories "CDN,SSO,Embedded Content" \
-  --cf-block-categories "Malware,Phishing,Spyware,Botnet" \
+  --ddg-block-categories "default" \
+  --ddg-allow-categories "default" \
+  --cf-block-categories "default" \
   -o unbound \
   --out-blocklist local-zone.conf \
   --out-allowlist local-allow.conf \
   -v
-```
-
 

@@ -1,8 +1,11 @@
 // ==========================================================================
 // Filename: shared/version.go
-// Version: 1.27.1-20260518
-// Date: 2026-05-18 11:20 CEST
+// Version: 1.28.1-20260518
+// Date: 2026-05-18 11:35 CEST
 // Update Trail:
+//   - 1.28.1-20260518: Explicitly documented 'default' category mappings 
+//                      in CATEGORIES.md, README.md, and --list-categories output.
+//   - 1.28.0-20260518: Removed 'Fingerprinting' from DDG default categories natively.
 //   - 1.27.1-20260518: Fixed bug in DDG Tracker Radar parser where dynamic 
 //                      Fingerprinting injection shadowed and bypassed the 
 //                      "Observed" category evaluation entirely.
@@ -97,7 +100,7 @@ import (
 
 // SuiteVersion defines the strictly synchronized global version for all tools natively.
 // Maintains synchronized output during CLI invocations.
-const SuiteVersion = "1.27.1-20260518"
+const SuiteVersion = "1.28.1-20260518"
 
 // PrintVersion outputs the standardized version string for the requesting tool
 // and securely exits the process to bypass execution natively. This avoids 
