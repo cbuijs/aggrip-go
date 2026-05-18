@@ -9,25 +9,11 @@ clean-dom --list-categories
 
 ```
 
-## Shorthand "default" Parameter
-
-You can rapidly deploy the best-practice categories documented below without typing them manually by supplying `default` to the category flags. The parser natively substitutes the strict arrays automatically.
-
-```
-clean-dom \
-  --ddg-block-categories default \
-  --ddg-allow-categories default \
-  --cf-block-categories default \
-  --cf-allow-categories default \
-  --cf-api-token "YOUR_TOKEN" \
-  -o unbound \
-  --out-blocklist filter.conf
-
-```
-
 ## 1. DuckDuckGo Tracker Radar
 
 DuckDuckGo Tracker Radar provides an open-source dataset evaluating thousands of third-party domains. Because tracking mechanisms overlap with essential website functionality, configuring these categories incorrectly can break target websites.
+
+**Note on CNAMEs and Fingerprinting:** The `clean-dom` parser explicitly extracts CNAME cloak aliases, applying identical tracking rules to them automatically. It also maps "Fingerprinting" as a dynamic pseudo-category if values exist in the API matrix. Top Initiators are intentionally ignored to prevent accidentally blocking essential first-party publishers.
 
 **Best-Practice Blocklist Categories**
 Use these categories with `--ddg-block-categories` to maximize privacy and reduce tracking telemetry.
@@ -45,6 +31,8 @@ Use these categories with `--ddg-block-categories` to maximize privacy and reduc
 * `Session Replay`
 
 * `Third-Party Analytics Marketing`
+
+* `Fingerprinting`
 
 **Best-Practice Allowlist Categories**
 Use these categories with `--ddg-allow-categories` to prevent blocking critical web infrastructure and authentication flows.
@@ -92,20 +80,19 @@ Use these categories with `--cf-allow-categories` if you are generating strict, 
 
 ## Example Complex Execution
 
-This pipeline command utilizes both services simultaneously. It securely blocks DDG trackers and Cloudflare threats while explicitly injecting CDN and SSO bounds into the allowlist to ensure users can still log in and view un-broken websites.
+This pipeline command utilizes both services simultaneously. It securely blocks DDG trackers, fingerprinting attempts, cloaked CNAME aliases, and Cloudflare threats while explicitly injecting CDN and SSO bounds into the allowlist to ensure users can still log in and view un-broken websites.
 
 ```
 export CF_API_TOKEN="YOUR_CLOUDFLARE_TOKEN"
 
 clean-dom \
-  --ddg-block-categories "Advertising,Analytics,Session Replay" \
+  --ddg-block-categories "Advertising,Analytics,Session Replay,Fingerprinting" \
   --ddg-allow-categories "CDN,SSO,Embedded Content" \
   --cf-block-categories "Malware,Phishing,Spyware,Botnet" \
   -o unbound \
   --out-blocklist local-zone.conf \
   --out-allowlist local-allow.conf \
   -v
-
 ```
 
 

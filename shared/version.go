@@ -1,8 +1,15 @@
 // ==========================================================================
 // Filename: shared/version.go
-// Version: 1.26.1-20260518
-// Date: 2026-05-18 10:50 CEST
+// Version: 1.27.1-20260518
+// Date: 2026-05-18 11:20 CEST
 // Update Trail:
+//   - 1.27.1-20260518: Fixed bug in DDG Tracker Radar parser where dynamic 
+//                      Fingerprinting injection shadowed and bypassed the 
+//                      "Observed" category evaluation entirely.
+//   - 1.27.0-20260518: Integrated "Fingerprinting" as a dynamic pseudo-category 
+//                      for DuckDuckGo Tracker Radar. Added CNAME cloaking 
+//                      resolution natively, mapping tracking aliases directly 
+//                      to their parent classifications.
 //   - 1.26.1-20260518: Added parsing support for the "Observed" category natively 
 //                      matching domains with an empty categories array in DDG.
 //   - 1.26.0-20260518: Updated formatter.go to natively append DuckDuckGo and 
@@ -90,7 +97,7 @@ import (
 
 // SuiteVersion defines the strictly synchronized global version for all tools natively.
 // Maintains synchronized output during CLI invocations.
-const SuiteVersion = "1.26.1-20260518"
+const SuiteVersion = "1.27.1-20260518"
 
 // PrintVersion outputs the standardized version string for the requesting tool
 // and securely exits the process to bypass execution natively. This avoids 

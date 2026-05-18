@@ -1,8 +1,8 @@
 /*
 ==========================================================================
 Filename: clean-dom/categories.go
-Version: 1.26.1-20260518
-Date: 2026-05-18 10:50 CEST
+Version: 1.27.0-20260518
+Date: 2026-05-18 11:15 CEST
 Description: Handles the console output of available tracking and threat 
              categories dynamically available via DuckDuckGo and Cloudflare 
              integrations. Separated to keep main pipeline logic clean.
@@ -33,6 +33,7 @@ func printCategories() {
 	fmt.Println("  * Action Pixels")
 	fmt.Println("  * Session Replay")
 	fmt.Println("  * Third-Party Analytics Marketing")
+	fmt.Println("  * Fingerprinting (Dynamically Mapped Pseudo-Category)")
 	fmt.Println("  * Social Network")
 	fmt.Println("  * CDN")
 	fmt.Println("  * SSO")

@@ -1,14 +1,19 @@
 /*
 ==========================================================================
 Filename: clean-dom/ddg.go
-Version: 1.26.1-20260518
-Date: 2026-05-18 10:50 CEST
+Version: 1.27.1-20260518
+Date: 2026-05-18 11:20 CEST
 Description: Handles DuckDuckGo Tracker Radar integration. Fetches the complete
              GitHub repository ZIP archive in memory, utilizing ETag/If-None-Match
              caching to prevent redundant downloads and rate-limiting. Extracts 
              JSON files concurrently, filtering domains by matching categories.
              
 Update Trail:
+  - 1.27.1 (2026-05-18): Fixed bug where dynamic Fingerprinting injection 
+                         shadowed and bypassed "Observed" category evaluation.
+  - 1.27.0 (2026-05-18): Integrated "Fingerprinting" as a dynamic pseudo-category.
+                         Added CNAME cloaking resolution mapping aliases securely 
+                         to their parent tracker classifications natively.
   - 1.26.1 (2026-05-18): Added parsing support for the "Observed" category natively 
                          matching domains with an empty categories array.
   - 1.26.0 (2026-05-18): ETag headers are now extracted and logged to console 
@@ -40,13 +45,21 @@ import (
 const ddgZipUrl = "https://github.com/duckduckgo/tracker-radar/archive/refs/heads/main.zip"
 
 // Recommended enterprise best-practice DuckDuckGo categories.
-const ddgDefaultBlock = "Advertising,Ad Motivated Tracking,Analytics,Audience Measurement,Action Pixels,Session Replay,Third-Party Analytics Marketing"
+// Added Fingerprinting natively to strictly mitigate device tracking evasion.
+const ddgDefaultBlock = "Advertising,Ad Motivated Tracking,Analytics,Audience Measurement,Action Pixels,Session Replay,Third-Party Analytics Marketing,Fingerprinting"
 const ddgDefaultAllow = "CDN,SSO,Embedded Content,Non-Tracking"
+
+// CnameStruct extracts exact CNAME aliases natively bypassing complex parsing rules.
+type CnameStruct struct {
+	Original string `json:"original"`
+}
 
 // DDGDomainStruct models the JSON schema of Tracker Radar individual files natively.
 type DDGDomainStruct struct {
-	Domain     string   `json:"domain"`
-	Categories []string `json:"categories"`
+	Domain         string        `json:"domain"`
+	Categories     []string      `json:"categories"`
+	Fingerprinting float64       `json:"fingerprinting"`
+	Cnames         []CnameStruct `json:"cnames"`
 }
 
 // fetchDuckDuckGo orchestrates the ZIP download, ETag caching, in-memory extraction, and concurrent JSON mapping.
@@ -203,14 +216,23 @@ func fetchDuckDuckGo(blockCats string, allowCats string, reportMode bool) Parsed
 				return
 			}
 
+			// Extract original category count before dynamic injections shadow it.
+			origCatCount := len(domData.Categories)
+
+			// Natively inject Fingerprinting as a dynamically evaluated pseudo-category 
+			// if the domain exhibits any active device fingerprinting behaviors.
+			if domData.Fingerprinting > 0 {
+				domData.Categories = append(domData.Categories, "Fingerprinting")
+			}
+
 			isBlock := false
 			isAllow := false
 			
 			var matchedBlockCats []string
 			var matchedAllowCats []string
 
-			// If domain has zero categories, match it to the "observed" parameter strictly
-			if len(domData.Categories) == 0 {
+			// If the domain natively lacked categories prior to injection, strictly match "Observed"
+			if origCatCount == 0 {
 				if _, exists := blockMap["observed"]; exists {
 					matchedBlockCats = append(matchedBlockCats, "Observed")
 					isBlock = true
@@ -219,53 +241,83 @@ func fetchDuckDuckGo(blockCats string, allowCats string, reportMode bool) Parsed
 					matchedAllowCats = append(matchedAllowCats, "Observed")
 					isAllow = true
 				}
-			} else {
-				// Check category arrays iteratively dynamically matching user parameters
-				for _, cat := range domData.Categories {
-					cleanCat := strings.TrimSpace(strings.ToLower(cat))
-					
-					if _, exists := blockMap[cleanCat]; exists {
-						matchedBlockCats = append(matchedBlockCats, cat)
-						isBlock = true
-					}
-					if _, exists := allowMap[cleanCat]; exists {
-						matchedAllowCats = append(matchedAllowCats, cat)
-						isAllow = true
-					}
+			}
+
+			// Evaluate all configured categories iteratively, including dynamic injections natively
+			for _, cat := range domData.Categories {
+				cleanCat := strings.TrimSpace(strings.ToLower(cat))
+				
+				if _, exists := blockMap[cleanCat]; exists {
+					matchedBlockCats = append(matchedBlockCats, cat)
+					isBlock = true
+				}
+				if _, exists := allowMap[cleanCat]; exists {
+					matchedAllowCats = append(matchedAllowCats, cat)
+					isAllow = true
 				}
 			}
 
 			if isBlock || isAllow {
-				// Process domain safely using standard mapping pipeline
-				parsed := parseDomainToken(domData.Domain)
-				if parsed.Domain == "" {
-					return
+				
+				// Structure evaluating base tracker domain and inheriting CNAME aliases securely.
+				// Bypasses Top Initiators entirely protecting primary web publisher scopes.
+				targets := []struct {
+					RawDomain string
+					IsCNAME   bool
+				}{
+					{RawDomain: domData.Domain, IsCNAME: false},
 				}
 
-				mu.Lock()
-				defer mu.Unlock()
-
-				if isBlock {
-					result.Blocks = append(result.Blocks, parsed.Domain)
-					result.SourceMap[parsed.Domain] = fmt.Sprintf("Source: DuckDuckGo Tracker Radar (%s)", strings.Join(matchedBlockCats, ", "))
-				}
-				if isAllow {
-					result.Allows = append(result.Allows, parsed.Domain)
-					result.SourceMap[parsed.Domain] = fmt.Sprintf("Source: DuckDuckGo Tracker Radar (%s)", strings.Join(matchedAllowCats, ", "))
-				}
-
-				if reportMode {
-					for _, r := range parsed.Reports {
-						r.Source = "DuckDuckGo Tracker Radar"
-						result.Reports = append(result.Reports, r)
+				for _, cname := range domData.Cnames {
+					if cname.Original != "" {
+						targets = append(targets, struct {
+							RawDomain string
+							IsCNAME   bool
+						}{RawDomain: cname.Original, IsCNAME: true})
 					}
 				}
 
-				if parsed.ApexOriginal != "" {
-					result.Conversions = append(result.Conversions, fmt.Sprintf("# %s - Removed (Apex only, mapped to: %s)", parsed.ApexOriginal, parsed.Domain))
-				}
-				if parsed.UnicodeOrig != "" {
-					result.Conversions = append(result.Conversions, fmt.Sprintf("# %s - Converted from Unicode: %s", parsed.Domain, parsed.UnicodeOrig))
+				// Process target and inherited aliases resolving validation bounds safely
+				for _, target := range targets {
+					parsed := parseDomainToken(target.RawDomain)
+					if parsed.Domain == "" {
+						continue
+					}
+
+					mu.Lock()
+
+					if isBlock {
+						result.Blocks = append(result.Blocks, parsed.Domain)
+						srcStr := fmt.Sprintf("Source: DuckDuckGo Tracker Radar (%s)", strings.Join(matchedBlockCats, ", "))
+						if target.IsCNAME {
+							srcStr = fmt.Sprintf("Source: DuckDuckGo Tracker Radar (%s) [CNAME of %s]", strings.Join(matchedBlockCats, ", "), domData.Domain)
+						}
+						result.SourceMap[parsed.Domain] = srcStr
+					}
+					if isAllow {
+						result.Allows = append(result.Allows, parsed.Domain)
+						srcStr := fmt.Sprintf("Source: DuckDuckGo Tracker Radar (%s)", strings.Join(matchedAllowCats, ", "))
+						if target.IsCNAME {
+							srcStr = fmt.Sprintf("Source: DuckDuckGo Tracker Radar (%s) [CNAME of %s]", strings.Join(matchedAllowCats, ", "), domData.Domain)
+						}
+						result.SourceMap[parsed.Domain] = srcStr
+					}
+
+					if reportMode {
+						for _, r := range parsed.Reports {
+							r.Source = "DuckDuckGo Tracker Radar"
+							result.Reports = append(result.Reports, r)
+						}
+					}
+
+					if parsed.ApexOriginal != "" {
+						result.Conversions = append(result.Conversions, fmt.Sprintf("# %s - Removed (Apex only, mapped to: %s)", parsed.ApexOriginal, parsed.Domain))
+					}
+					if parsed.UnicodeOrig != "" {
+						result.Conversions = append(result.Conversions, fmt.Sprintf("# %s - Converted from Unicode: %s", parsed.Domain, parsed.UnicodeOrig))
+					}
+
+					mu.Unlock()
 				}
 			}
 		}(f)
