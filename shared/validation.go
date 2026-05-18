@@ -1,8 +1,10 @@
 // ==========================================================================
 // Filename: shared/validation.go
-// Version: 1.16.0-20260503
-// Date: 2026-05-03 17:35 CEST
+// Version: 1.17.0-20260518
+// Date: 2026-05-18 13:12 CEST
 // Update Trail:
+//   - 1.17.0 (2026-05-18): Added TryExtractConcatenatedIP natively separating 
+//                          malformed HOSTS anomalies explicitly.
 //   - 1.16.0 (2026-05-03): Integrated Public Suffix List (PSL) natively.
 //                          Added ExtractApex bounding extraction capabilities.
 //   - 1.14.0 (2026-04-29): Added missing A-Z bounds block in IsValidDomain, 
@@ -263,5 +265,40 @@ func IsValidDomain(b []byte, lessStrict bool) bool {
 		return false
 	}
 	return true
+}
+
+// TryExtractConcatenatedIP mathematically identifies and separates malformed 
+// concatenated IP+Domain strings natively (e.g., "0.0.0.0domain.com").
+// Scans backward from the maximum possible IP length bounds to extract valid prefixes securely.
+func TryExtractConcatenatedIP(token string) (domain string, ip string, found bool) {
+	// Minimum IPv4 length is 7 ("1.1.1.1").
+	// Maximum IPv6 length is 39.
+	if len(token) <= 7 {
+		return "", "", false
+	}
+
+	limit := 39
+	if len(token) < limit {
+		limit = len(token)
+	}
+
+	// Traverse backwards to safely capture the longest greedy valid IP prefix accurately.
+	for i := limit; i >= 7; i-- {
+		prefix := token[:i]
+		
+		// Fast heuristic bounds bypassing slow netip parse allocations natively
+		if strings.IndexByte(prefix, '.') != -1 || strings.IndexByte(prefix, ':') != -1 {
+			if addr, err := netip.ParseAddr(prefix); err == nil {
+				remainder := token[i:]
+				// Guarantee the remainder operates as a standalone viable domain structurally.
+				// Explicitly drop boundaries starting with dots protecting valid domains (e.g. 1.2.3.4.domain.com).
+				if len(remainder) > 0 && IsPlausibleDomain(remainder) && remainder[0] != '.' && remainder[0] != '-' {
+					return remainder, addr.String(), true
+				}
+			}
+		}
+	}
+	
+	return "", "", false
 }
 

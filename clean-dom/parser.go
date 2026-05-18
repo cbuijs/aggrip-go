@@ -1,13 +1,19 @@
 /*
 ==========================================================================
 Filename: clean-dom/parser.go
-Version: 1.19.0-20260518
-Date: 2026-05-18 12:49 CEST
+Version: 1.21.0-20260518
+Date: 2026-05-18 13:30 CEST
 Description: Handles file I/O, format detection, Adblock translation, 
              and parallel bulk ingestion of raw list payloads. Strict
              path rejection protects DNS zone integrity.
 
 Update Trail:
+  - 1.21.0 (2026-05-18): Refactored `--fix-up` into `--fix-up-mode`. Added 
+                         support for 'remove' and 'report' actions when 
+                         evaluating malformed concatenated IP anomalies.
+  - 1.20.0 (2026-05-18): Implemented explicit parsing routes executing `--fix-up`.
+                         Separates malformed concatenated IPs completely seamlessly 
+                         across base tokens, Top-N feeds, and adblock targets.
   - 1.19.0 (2026-05-18): Integrated centralized FetchStreamCached utilizing 
                          ETag and Last-Modified caching dynamically. Increased 
                          stream timeout to 120 seconds preventing EOF drops.
@@ -81,6 +87,7 @@ type parseResult struct {
 	DenyAllowConversions []string // Tracks structural mappings executed against exclusions specifically
 	DenyAllowUnicodeMap  map[string]string
 	Reports              []ReportEntry
+	FixedUpIP            string // Tracks the structurally isolated IP payload specifically protecting output bindings natively
 }
 
 // detectFormat samples lines to heuristically determine the file format dynamically.
@@ -247,10 +254,27 @@ func parseDomainToken(token string) parseResult {
 		}
 	}
 
-	// 5. Clean and translate base domain via IDNA natively.
+	// 5. Clean and translate base domain natively.
 	cleanDom := normalizeDomain(domainPart)
 	if cleanDom == "" {
 		return res
+	}
+
+	// Dynamic IP-Concatenation Fix-up Hook natively deployed.
+	fixedIP := ""
+	if extractedDom, ip, found := shared.TryExtractConcatenatedIP(cleanDom); found {
+		if fixUpMode == "fix" {
+			cleanDom = extractedDom
+			fixedIP = ip
+		} else if fixUpMode == "remove" {
+			res.Reports = append(res.Reports, ReportEntry{Domain: cleanDom, Action: "Removed", Reason: "Malformed concatenation (IP: " + ip + ")"})
+			logMsg("Fix-up (Remove): Dropped malformed domain '%s' containing IP '%s'", cleanDom, ip)
+			return res // Returns empty parseResult, dropping it cleanly
+		} else {
+			// Defaults to "report" gracefully maintaining original parsed string natively
+			res.Reports = append(res.Reports, ReportEntry{Domain: cleanDom, Action: "Reported", Reason: "Malformed concatenation detected (IP: " + ip + ")"})
+			logMsg("Fix-up (Report): Detected malformed domain '%s' containing IP '%s'", cleanDom, ip)
+		}
 	}
 
 	punyDom := cleanDom
@@ -283,6 +307,12 @@ func parseDomainToken(token string) parseResult {
 
 	res.Domain = punyDom
 	res.UnicodeOrig = domOrig
+	res.FixedUpIP = fixedIP
+
+	if fixedIP != "" {
+		logMsg("Fix-up (Fix): Detached IP '%s' from malformed domain '%s'", fixedIP, res.Domain)
+		res.Reports = append(res.Reports, ReportEntry{Domain: res.Domain, Action: "Modified", Reason: "Fix-up: Detached concatenated IP " + fixedIP})
+	}
 
 	// 6. Process Modifiers and strictly validate $denyallow logic and relationships.
 	if modifiers != "" {
@@ -316,6 +346,22 @@ func parseDomainToken(token string) parseResult {
 						continue
 					}
 
+					// Dynamic IP-Concatenation Fix-up Hook for targets natively.
+					fixedDaIP := ""
+					if d, ip, found := shared.TryExtractConcatenatedIP(cleanDa); found {
+						if fixUpMode == "fix" {
+							cleanDa = d
+							fixedDaIP = ip
+						} else if fixUpMode == "remove" {
+							res.Reports = append(res.Reports, ReportEntry{Domain: cleanDa, Action: "Removed", Reason: "Malformed concatenation in $denyallow (IP: " + ip + ")"})
+							logMsg("Fix-up (Remove): Dropped malformed $denyallow domain '%s' containing IP '%s'", cleanDa, ip)
+							continue // Drop target entirely
+						} else {
+							res.Reports = append(res.Reports, ReportEntry{Domain: cleanDa, Action: "Reported", Reason: "Malformed concatenation in $denyallow detected (IP: " + ip + ")"})
+							logMsg("Fix-up (Report): Detected malformed $denyallow domain '%s' containing IP '%s'", cleanDa, ip)
+						}
+					}
+
 					punyDa := cleanDa
 					var daOrig string
 
@@ -345,6 +391,12 @@ func parseDomainToken(token string) parseResult {
 					}
 
 					if !shared.IsFastIPStrict(punyDa) && shared.IsPlausibleDomain(punyDa) {
+						if fixedDaIP != "" {
+							logMsg("Fix-up (Fix): Detached IP '%s' from malformed $denyallow domain '%s'", fixedDaIP, punyDa)
+							res.Reports = append(res.Reports, ReportEntry{Domain: punyDa, Action: "Modified", Reason: "Fix-up: Detached concatenated IP " + fixedDaIP})
+							res.DenyAllowConversions = append(res.DenyAllowConversions, fmt.Sprintf("# %s - Fixed malformed concatenation (Removed IP: %s)", punyDa, fixedDaIP))
+						}
+
 						// Subdomain Integrity Check: Exclusions MUST fall beneath the base domain.
 						// For example, if blocking 'domain.com', allowlisting 'other.com' via denyallow is invalid.
 						if punyDa == punyDom || strings.HasSuffix(punyDa, "."+punyDom) {
@@ -455,6 +507,9 @@ func readDomainsBulk(source string, isTopN bool, listType string, reportMode boo
 			}
 			
 			// Map specific translations to output logs preserving audit limits seamlessly
+			if parsed.FixedUpIP != "" {
+				result.Conversions = append(result.Conversions, fmt.Sprintf("# %s - Fixed malformed concatenation (Removed IP: %s)", parsed.Domain, parsed.FixedUpIP))
+			}
 			if parsed.ApexOriginal != "" {
 				result.Conversions = append(result.Conversions, fmt.Sprintf("# %s - Removed (Apex only, mapped to: %s)", parsed.ApexOriginal, parsed.Domain))
 			}
@@ -540,6 +595,26 @@ func readDomainsBulk(source string, isTopN bool, listType string, reportMode boo
 					return
 				}
 
+				// Dynamic IP-Concatenation Fix-up Hook natively deployed.
+				fixedIP := ""
+				if d, ip, found := shared.TryExtractConcatenatedIP(dom); found {
+					if fixUpMode == "fix" {
+						dom = d
+						fixedIP = ip
+					} else if fixUpMode == "remove" {
+						if reportMode {
+							result.Reports = append(result.Reports, ReportEntry{Domain: dom, Action: "Removed", Reason: "Malformed concatenation (IP: " + ip + ")", Source: source})
+						}
+						logMsg("Fix-up (Remove): Dropped malformed Top-N domain '%s' containing IP '%s'", dom, ip)
+						return // Drop target seamlessly returning from this string
+					} else {
+						if reportMode {
+							result.Reports = append(result.Reports, ReportEntry{Domain: dom, Action: "Reported", Reason: "Malformed concatenation detected (IP: " + ip + ")", Source: source})
+						}
+						logMsg("Fix-up (Report): Detected malformed Top-N domain '%s' containing IP '%s'", dom, ip)
+					}
+				}
+
 				punyDom := dom
 				var domOrig string
 
@@ -573,6 +648,13 @@ func readDomainsBulk(source string, isTopN bool, listType string, reportMode boo
 					}
 					if domOrig != "" {
 						result.Conversions = append(result.Conversions, fmt.Sprintf("# %s - Converted from Unicode: %s", punyDom, domOrig))
+					}
+					if fixedIP != "" {
+						logMsg("Fix-up (Fix): Detached IP '%s' from malformed Top-N domain '%s'", fixedIP, punyDom)
+						result.Conversions = append(result.Conversions, fmt.Sprintf("# %s - Fixed malformed concatenation (Removed IP: %s)", punyDom, fixedIP))
+						if reportMode {
+							result.Reports = append(result.Reports, ReportEntry{Domain: punyDom, Action: "Modified", Reason: "Fix-up: Detached concatenated IP " + fixedIP, Source: source})
+						}
 					}
 				}
 			}

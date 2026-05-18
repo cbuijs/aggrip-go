@@ -1,9 +1,14 @@
 /*
 ==========================================================================
 Filename: clean-dom/main.go
-Version: 1.26.0-20260518
-Date: 2026-05-18 10:46 CEST
+Version: 1.28.0-20260518
+Date: 2026-05-18 13:30 CEST
 Update Trail:
+  - 1.28.0 (2026-05-18): Replaced `--fix-up` with `--fix-up-mode` offering 
+                         'fix', 'remove', and 'report' strategies for 
+                         concatenated IPs.
+  - 1.27.0 (2026-05-18): Added global `--fix-up` flag dynamically resolving 
+                         concatenated IP+Domain format anomalies natively.
   - 1.26.0 (2026-05-18): Implemented source tracking natively for output files.
                          DDG and CF sources are now prepended to domains.
   - 1.25.0 (2026-05-18): Added "default" shorthand string parsing functionality
@@ -80,6 +85,7 @@ var (
 	optimizeAllow    bool
 	preferBlocklist  bool
 	apexOnly         bool
+	fixUpMode        string
 	suppressComments bool
 	lessStrict       bool
 	allowTLD         bool
@@ -137,6 +143,8 @@ func init() {
 
 	flag.BoolVar(&apexOnly, "apex-only", false, "Strictly extract and retain only apex domains (eTLD+1), stripping sub-domains")
 
+	flag.StringVar(&fixUpMode, "fix-up-mode", "report", "Handling of concatenated IP+domain entries (fix, remove, report)")
+
 	flag.BoolVar(&suppressComments, "suppress-comments", false, "Suppress audit log of removed domains")
 
 	flag.BoolVar(&lessStrict, "less-strict", false, "Allow underscores (_) and asterisks (*) in domain names")
@@ -182,6 +190,7 @@ func init() {
 		fmt.Fprintf(os.Stderr, "      --optimize-allowlist       Drop unused allowlist entries\n")
 		fmt.Fprintf(os.Stderr, "  -p, --prefer-blocklist         Reverse default preference: Blocklist takes precedence over allowlist\n")
 		fmt.Fprintf(os.Stderr, "      --apex-only                Strictly extract and retain only apex domains (eTLD+1), stripping sub-domains\n")
+		fmt.Fprintf(os.Stderr, "      --fix-up-mode <mode>       Handling of concatenated IP+domain entries (fix, remove, report) (default \"report\")\n")
 		fmt.Fprintf(os.Stderr, "      --suppress-comments        Suppress audit log of removed domains\n")
 		fmt.Fprintf(os.Stderr, "  -l, --less-strict              Allow underscores (_) and asterisks (*) in domain names\n")
 		fmt.Fprintf(os.Stderr, "      --allow-tld                Allow Top-Level Domains (TLDs) like 'com' (Note: 'com' collapses all .com subdomains)\n")

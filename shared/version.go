@@ -1,8 +1,11 @@
 // ==========================================================================
 // Filename: shared/version.go
-// Version: 1.29.0-20260518
-// Date: 2026-05-18 12:49 CEST
+// Version: 1.30.0-20260518
+// Date: 2026-05-18 13:12 CEST
 // Update Trail:
+//   - 1.30.0-20260518: Added global `--fix-up` feature resolving concatenated 
+//                      IP+Domain format anomalies (e.g. 0.0.0.0domain.com).
+//                      Implemented high-speed TryExtractConcatenatedIP extractor natively.
 //   - 1.29.0-20260518: Increased global HTTP timeouts to 120 seconds. 
 //                      Implemented FetchStreamCached with ETag and Last-Modified 
 //                      support natively inside shared/io.go. Integrated caching 
@@ -104,7 +107,7 @@ import (
 
 // SuiteVersion defines the strictly synchronized global version for all tools natively.
 // Maintains synchronized output during CLI invocations.
-const SuiteVersion = "1.29.0-20260518"
+const SuiteVersion = "1.30.0-20260518"
 
 // PrintVersion outputs the standardized version string for the requesting tool
 // and securely exits the process to bypass execution natively. This avoids 
