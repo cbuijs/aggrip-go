@@ -1,9 +1,17 @@
 /*
 ==========================================================================
 Filename: clean-dom/main.go
-Version: 1.19.0-20260506
-Date: 2026-05-06 16:30 CEST
+Version: 1.26.0-20260518
+Date: 2026-05-18 10:46 CEST
 Update Trail:
+  - 1.26.0 (2026-05-18): Implemented source tracking natively for output files.
+                         DDG and CF sources are now prepended to domains.
+  - 1.25.0 (2026-05-18): Added "default" shorthand string parsing functionality
+                         mapping best-practice categories internally. Updated help logs.
+  - 1.23.0 (2026-05-18): Added --list-categories flag logic intercepting 
+                         execution cleanly to output taxonomy documentation.
+  - 1.22.0 (2026-05-18): Added DDG Tracker Radar and Cloudflare Radar Integration.
+                         Added blocklist and allowlist categorization dynamically.
   - 1.19.0 (2026-05-06): Added descriptive tool summary to --help output.
   - 1.18.0 (2026-05-03): Added --report <file> parameter explicitly tracking 
                          modifications, removals, and source origins globally.
@@ -63,6 +71,12 @@ var (
 	outAllowlist     string
 	reportFile       string
 	validTlds        string
+	ddgBlockCats     string
+	ddgAllowCats     string
+	cfBlockCats      string
+	cfAllowCats      string
+	cfApiToken       string
+	listCategories   bool
 	optimizeAllow    bool
 	preferBlocklist  bool
 	apexOnly         bool
@@ -99,8 +113,6 @@ func init() {
 
 	flag.StringVar(&sortAlgo, "sort", "domain", "Sorting algorithm: domain, alphabetically, tld")
 
-	// FIXED CRITICAL REGRESSION: Memory address mapping collision. 
-	// Previously pointed &sortAlgo incorrectly to out-blocklist flag.
 	flag.StringVar(&outBlocklist, "out-blocklist", "", "File path to write the blocklist output (default: STDOUT)")
 	flag.StringVar(&outAllowlist, "out-allowlist", "", "File path to write the allowlist output")
 
@@ -108,6 +120,15 @@ func init() {
 	flag.StringVar(&reportFile, "r", "", "Short for --report")
 
 	flag.StringVar(&validTlds, "valid-tlds", "iana", "Comma-separated list of allowed TLD registries: iana (default), opennic, hns, all, disable")
+
+	flag.StringVar(&ddgBlockCats, "ddg-block-categories", "", "Comma-separated DuckDuckGo Tracker Radar categories to block (use 'default' for recommended)")
+	flag.StringVar(&ddgAllowCats, "ddg-allow-categories", "", "Comma-separated DuckDuckGo Tracker Radar categories to allow (use 'default' for recommended)")
+
+	flag.StringVar(&cfBlockCats, "cf-block-categories", "", "Comma-separated Cloudflare Radar categories to block (use 'default' for recommended)")
+	flag.StringVar(&cfAllowCats, "cf-allow-categories", "", "Comma-separated Cloudflare Radar categories to allow (use 'default' for recommended)")
+	flag.StringVar(&cfApiToken, "cf-api-token", "", "Cloudflare API Token for Radar categorizations (defaults to CF_API_TOKEN env var)")
+	
+	flag.BoolVar(&listCategories, "list-categories", false, "List available categories for DuckDuckGo and Cloudflare integrations")
 
 	flag.BoolVar(&optimizeAllow, "optimize-allowlist", false, "Drop unused allowlist entries")
 	
@@ -121,7 +142,7 @@ func init() {
 	flag.BoolVar(&lessStrict, "less-strict", false, "Allow underscores (_) and asterisks (*) in domain names")
 	flag.BoolVar(&lessStrict, "l", false, "Short for --less-strict")
 
-	flag.BoolVar(&allowTLD, "allow-tld", false, "Allow Top-Level Domains (TLDs) like 'com' or 'net'")
+	flag.BoolVar(&allowTLD, "allow-tld", false, "Allow Top-Level Domains (TLDs) like 'com' (Note: 'com' collapses all .com subdomains)")
 
 	flag.Var(&compressHosts, "compress-hosts", "Compress HOSTS format output (default 10 domains per IP when flag is present)")
 
@@ -152,6 +173,12 @@ func init() {
 		fmt.Fprintf(os.Stderr, "  -r, --report <file>            File to output a comprehensive report of modified/removed domains with sources\n")
 		fmt.Fprintf(os.Stderr, "      --sort <type>              Sorting algorithm (domain, alphabetically, tld) (default \"domain\")\n")
 		fmt.Fprintf(os.Stderr, "      --valid-tlds <list>        Allowed TLD registries (iana, opennic, hns, all, disable) (default \"iana\")\n")
+		fmt.Fprintf(os.Stderr, "      --ddg-block-categories     Comma-separated DuckDuckGo Tracker Radar categories to block (use 'default' for recommended)\n")
+		fmt.Fprintf(os.Stderr, "      --ddg-allow-categories     Comma-separated DuckDuckGo Tracker Radar categories to allow (use 'default' for recommended)\n")
+		fmt.Fprintf(os.Stderr, "      --cf-block-categories      Comma-separated Cloudflare Radar categories to block (use 'default' for recommended)\n")
+		fmt.Fprintf(os.Stderr, "      --cf-allow-categories      Comma-separated Cloudflare Radar categories to allow (use 'default' for recommended)\n")
+		fmt.Fprintf(os.Stderr, "      --cf-api-token             Cloudflare API Token for Radar integrations\n")
+		fmt.Fprintf(os.Stderr, "      --list-categories          List available categories for DuckDuckGo and Cloudflare integrations\n")
 		fmt.Fprintf(os.Stderr, "      --optimize-allowlist       Drop unused allowlist entries\n")
 		fmt.Fprintf(os.Stderr, "  -p, --prefer-blocklist         Reverse default preference: Blocklist takes precedence over allowlist\n")
 		fmt.Fprintf(os.Stderr, "      --apex-only                Strictly extract and retain only apex domains (eTLD+1), stripping sub-domains\n")
@@ -161,7 +188,7 @@ func init() {
 		fmt.Fprintf(os.Stderr, "      --compress-hosts[=<num>]   Compress HOSTS format output (default 10 domains per IP when flag is present)\n")
 		fmt.Fprintf(os.Stderr, "  -v, --verbose                  Show progress and statistics on STDERR\n")
 		fmt.Fprintf(os.Stderr, "  -V, --version                  Show version information and exit\n")
-		fmt.Fprintf(os.Stderr, "  -h, --help                     Show this help message\n")
+		fmt.Fprintf(os.Stderr, "  -h, --help                     Show this message\n")
 		fmt.Fprintf(os.Stderr, "\nExample:\n")
 		fmt.Fprintf(os.Stderr, "  clean-dom -b ads.txt -o unbound -r changes.tsv --valid-tlds iana,opennic -p -v\n")
 	}
@@ -188,8 +215,13 @@ func main() {
 		shared.PrintVersion("clean-dom")
 	}
 
-	if len(blocklists) == 0 {
-		log.Fatal("Error: At least one --blocklist must be provided.")
+	// Trap category listing strictly halting execution cleanly before pipeline init
+	if listCategories {
+		printCategories()
+	}
+
+	if len(blocklists) == 0 && ddgBlockCats == "" && cfBlockCats == "" {
+		log.Fatal("Error: At least one --blocklist, --ddg-block-categories, or --cf-block-categories must be provided.")
 	}
 	if outputFmt == "all" && allDir == "" {
 		log.Fatal("Error: --all-dir is required when using -o all.")
@@ -208,8 +240,7 @@ func main() {
 	allowDomains := make(map[string]struct{})
 	var conversionLog []string
 
-	// Global telemetry arrays explicitly restricted to --report executions.
-	// Bypasses memory allocations cleanly when uncalled.
+	// Global telemetry arrays explicitly tracking sources uniformly for reporting and comments
 	reportMode := reportFile != ""
 	globalSourceMap := make(map[string]string)
 	globalReports := make([]ReportEntry, 0)
@@ -253,14 +284,17 @@ func main() {
 			}
 			conversionLog = append(conversionLog, res.Conversions...)
 
-			if reportMode {
-				globalReports = append(globalReports, res.Reports...)
+			if res.SourceMap != nil {
 				for k, v := range res.SourceMap {
 					// Route the primary detected origin cleanly bypassing overlapping redundant mappings.
 					if _, exists := globalSourceMap[k]; !exists {
 						globalSourceMap[k] = v
 					}
 				}
+			}
+
+			if reportMode {
+				globalReports = append(globalReports, res.Reports...)
 			}
 		}
 		close(ch)
@@ -272,6 +306,49 @@ func main() {
 	if len(allowlists) > 0 {
 		logMsg("Consolidating Allowlists...")
 		processList(allowlists, false, "Allowlist")
+	}
+
+	// DuckDuckGo Tracker Radar Integration
+	if ddgBlockCats != "" || ddgAllowCats != "" {
+		logMsg("Consolidating DuckDuckGo Tracker Radar domains...")
+		res := fetchDuckDuckGo(ddgBlockCats, ddgAllowCats, reportMode)
+		blockDomains = append(blockDomains, res.Blocks...)
+		for _, a := range res.Allows {
+			allowDomains[a] = struct{}{}
+		}
+		conversionLog = append(conversionLog, res.Conversions...)
+		
+		if res.SourceMap != nil {
+			for k, v := range res.SourceMap {
+				// We overwrite here so specialized tracking categories supersede generic blocklist labels
+				globalSourceMap[k] = v
+			}
+		}
+
+		if reportMode {
+			globalReports = append(globalReports, res.Reports...)
+		}
+	}
+
+	// Cloudflare Radar API Integration
+	if cfBlockCats != "" || cfAllowCats != "" {
+		logMsg("Consolidating Cloudflare Radar domains...")
+		res := fetchCloudflare(cfBlockCats, cfAllowCats, cfApiToken, reportMode)
+		blockDomains = append(blockDomains, res.Blocks...)
+		for _, a := range res.Allows {
+			allowDomains[a] = struct{}{}
+		}
+		conversionLog = append(conversionLog, res.Conversions...)
+		
+		if res.SourceMap != nil {
+			for k, v := range res.SourceMap {
+				globalSourceMap[k] = v
+			}
+		}
+
+		if reportMode {
+			globalReports = append(globalReports, res.Reports...)
+		}
 	}
 
 	topnDomains := make(map[string]struct{})
@@ -300,13 +377,17 @@ func main() {
 		for i := 0; i < len(topnlists); i++ {
 			res := <-ch
 			topNBlocks = append(topNBlocks, res.Blocks...)
-			if reportMode {
-				globalReports = append(globalReports, res.Reports...)
+			
+			if res.SourceMap != nil {
 				for k, v := range res.SourceMap {
 					if _, exists := globalSourceMap[k]; !exists {
 						globalSourceMap[k] = v
 					}
 				}
+			}
+
+			if reportMode {
+				globalReports = append(globalReports, res.Reports...)
 			}
 		}
 		close(ch)

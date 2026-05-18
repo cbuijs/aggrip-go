@@ -12,6 +12,10 @@ High-performance, low-latency, and secure Go utilities for optimizing, deduplica
 
 * **Concurrent Ingestion:** Streams massive lists via HTTP/HTTPS or local paths using Go concurrency.
 
+* **DuckDuckGo Tracker Radar Integration:** Pulls the complete tracker dataset dynamically in-memory, parses JSONs concurrently, and generates blocks or allows based on native category matching. View categories using `--list-categories`.
+
+* **Cloudflare Radar API Integration:** Queries the authenticated Cloudflare Radar API to map the Top 1000 Domains by category directly into active firewall scopes. View categories using `--list-categories`.
+
 * **Format Autodetection:** Upfront heuristic format detection (hosts, adblock, routedns, squid, domain).
 
 * **Adblock Parsing:** Extracts modifiers (e.g., `$denyallow`) and translates Punycode (IDNA) automatically.
@@ -30,9 +34,14 @@ High-performance, low-latency, and secure Go utilities for optimizing, deduplica
 # Standard Output Formatting
 clean-dom -b https://example.com/ads.txt -a local-allow.txt -o unbound --out-blocklist unbound-filter.conf --valid-tlds iana,opennic -v
 
+# List Available External Integration Categories
+clean-dom --list-categories
+
+# DuckDuckGo and Cloudflare Integrations
+clean-dom --ddg-block-categories "Advertising,Analytics" --cf-block-categories "Malware,Phishing" --cf-api-token "YOUR_TOKEN" -o domain -v
+
 # Compressed HOSTS File Routing (Output mapping up to 15 domains per single IP line)
 clean-dom -b https://example.com/ads.txt -o hosts --compress-hosts=15 --out-blocklist filter.hosts -v
-```
 
 ### 2. clean-ip
 
@@ -54,7 +63,6 @@ clean-dom -b https://example.com/ads.txt -o hosts --compress-hosts=15 --out-bloc
 
 ```bash
 clean-ip -b drop.txt -a allow.txt -o iptables --out-blocklist rules.v4 -v
-```
 
 ### 3. aggrip
 
@@ -80,7 +88,6 @@ cat raw_ips.txt | aggrip > optimized_cidrs.txt
 
 # Direct file I/O with strict boundary enforcement
 aggrip -i raw_ips.txt -o optimized_cidrs.txt -s -v
-```
 
 ### 4. undup
 
@@ -101,7 +108,6 @@ cat domains.txt | undup > unique_domains.txt
 
 # File I/O with less-strict parsing
 undup -i mixed_domains.txt -o clean_domains.txt -l -v
-```
 
 ### 5. domsort
 
@@ -122,7 +128,6 @@ cat mixed_file.txt | domsort -r > sorted_mixed_file.txt
 
 # Direct file I/O with alphabetical layout preservation
 domsort -i raw.list -o formatted.list -a -l -v
-```
 
 ## Building from Source
 
@@ -144,105 +149,81 @@ go build -ldflags="-s -w" -o domsort ./domsort
 
 # Build undup
 go build -ldflags="-s -w" -o undup ./undup
-```
 ~~~eof
 
-~~~markdown:EXAMPLES.md
-# aggrip-go Suite Examples
+~~~markdown:Categories Guide:cbuijs/aggrip-go/aggrip-go-92f4f5fded4ef5cec595e0ff6ce55e8252ab741a/CATEGORIES.md
+# External Integrations & Category Best Practices
 
-This document provides real-world examples of utilizing the `aggrip-go` suite with popular enterprise and community blocklists from StevenBlack, Hagezi, and OISD.
+The `clean-dom` utility natively supports pulling high-fidelity domain intelligence via **DuckDuckGo Tracker Radar** and the **Cloudflare Radar API**. 
 
-## 1. clean-dom
+You can preview all available categories in the console using the `--list-categories` flag:
+```bash
+clean-dom --list-categories
 
-Consolidate multiple community blocklists, deduplicate redundant subdomains, drop invalid structures, and generate an unbound configuration file.
+---
+
+## 1. DuckDuckGo Tracker Radar
+
+DuckDuckGo Tracker Radar provides an open-source dataset evaluating thousands of third-party domains. Because tracking mechanisms overlap with essential website functionality, configuring these categories incorrectly can break target websites.
+
+**Best-Practice Blocklist Categories**
+Use these categories with `--ddg-block-categories` to maximize privacy and reduce tracking telemetry.
+* `Advertising`
+* `Ad Motivated Tracking`
+* `Analytics`
+* `Audience Measurement`
+* `Action Pixels`
+* `Session Replay`
+* `Third-Party Analytics Marketing`
+
+**Best-Practice Allowlist Categories**
+Use these categories with `--ddg-allow-categories` to prevent blocking critical web infrastructure and authentication flows.
+* `CDN` (Content Delivery Networks storing images/CSS/JS)
+* `SSO` (Single Sign-On protocols like OAuth/SAML)
+* `Embedded Content` (Video players, social media embeds)
+* `Non-Tracking` (Domains strictly necessary for the application to function)
+
+---
+
+## 2. Cloudflare Radar API
+
+Cloudflare Radar tracks live malicious activity, threats, and application trends globally. This integration requires an active Cloudflare API token provided via `--cf-api-token` or the `CF_API_TOKEN` environment variable.
+
+**Best-Practice Blocklist Categories**
+Use these categories with `--cf-block-categories` to harden network security against active threats.
+* `Malware`
+* `Phishing`
+* `Spyware`
+* `Botnet`
+* `Command and Control`
+* `Spam`
+
+**Situational Filtering Categories**
+These categories are highly dependent on your network environment (e.g., corporate/enterprise vs. home).
+* `Proxy` / `Anonymizer` (Corporate environments generally block these to prevent bypass)
+* `Adult Themes` (Standard for family-safe filtering)
+* `Gambling` (Standard for corporate/family-safe filtering)
+
+**Best-Practice Allowlist Categories**
+Use these categories with `--cf-allow-categories` if you are generating strict, default-deny environments that need basic web architecture whitelisted.
+* `Content Delivery Networks`
+
+---
+
+## Example Complex Execution
+
+This pipeline command utilizes both services simultaneously. It securely blocks DDG trackers and Cloudflare threats while explicitly injecting CDN and SSO bounds into the allowlist to ensure users can still log in and view un-broken websites.
 
 ```bash
+export CF_API_TOKEN="YOUR_CLOUDFLARE_TOKEN"
+
 clean-dom \
-  -b https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts \
-  -b https://raw.githubusercontent.com/hagezi/dns-blocklists/main/domains/pro.txt \
-  -b https://big.oisd.nl/domainswild \
+  --ddg-block-categories "Advertising,Analytics,Session Replay" \
+  --ddg-allow-categories "CDN,SSO,Embedded Content" \
+  --cf-block-categories "Malware,Phishing,Spyware,Botnet" \
   -o unbound \
-  --out-blocklist unbound-blocklist.conf \
+  --out-blocklist local-zone.conf \
+  --out-allowlist local-allow.conf \
   -v
-```
-
-Generate a compressed HOSTS file, utilizing an explicit allowlist to prevent false positives.
-
-```bash
-clean-dom \
-  -b https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts \
-  -b https://raw.githubusercontent.com/hagezi/dns-blocklists/main/domains/ultimate.txt \
-  -a https://raw.githubusercontent.com/hagezi/dns-blocklists/main/whitelist.txt \
-  -o hosts \
-  --out-blocklist /etc/hosts.adblock \
-  --compress-hosts=15 \
-  -v
-```
-
-## 2. clean-ip
-
-Process Hagezi's IP-based blocklists, punch mathematical exclusions for a local allowlist, and export directly to `iptables` rules.
-
-```bash
-clean-ip \
-  -b https://raw.githubusercontent.com/hagezi/dns-blocklists/main/ips/doh.txt \
-  -b https://raw.githubusercontent.com/hagezi/dns-blocklists/main/ips/vpn.txt \
-  -a local_allow_ips.txt \
-  -o iptables \
-  --out-blocklist iptables_drop.rules \
-  -s \
-  -v
-```
-
-Aggregate and optimize blocklists into standard CIDR notations for Mikrotik routers.
-
-```bash
-clean-ip \
-  -b https://raw.githubusercontent.com/hagezi/dns-blocklists/main/ips/tor.txt \
-  -o mikrotik \
-  --out-blocklist mikrotik_address_list.rsc \
-  -v
-```
-
-## 3. aggrip
-
-Stream raw IP blocklists directly from GitHub into `aggrip` to compress overlapping subsets into an optimized CIDR list via UNIX pipelines.
-
-```bash
-curl -sL https://raw.githubusercontent.com/hagezi/dns-blocklists/main/ips/pro.txt | aggrip -s -v > optimized_cidrs.txt
-```
-
-Merge local and remote IP lists simultaneously, enforcing strict host-bit boundaries.
-
-```bash
-cat local_ips.txt <(curl -sL https://raw.githubusercontent.com/hagezi/dns-blocklists/main/ips/doh.txt) | aggrip -o final_optimized.txt -s
-```
-
-## 4. undup
-
-Rapidly strip redundant subdomains from a massive domain feed without performing strict RFC or TLD validation, optimizing raw input before heavy processing.
-
-```bash
-curl -sL https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts | awk '{print $2}' | undup -l > unique_base_domains.txt
-```
-
-Chain `clean-dom` output directly into `undup` to enforce strict binary-level parent-child deduplication on plain domain lists.
-
-```bash
-clean-dom -b https://big.oisd.nl/domainswild -o domain | undup -o oisd_apex_only.txt -v
-```
-
-## 5. domsort
-
-Read a mixed text configuration containing comments and whitespace boundaries, enforcing TLD-down alphabetizing securely strictly within the segmented domain rules while preserving the original layout structure entirely natively.
-
-```bash
-cat adblock_feed.txt | domsort -l -v > adblock_feed_sorted.txt
-```
-
-Enforce strict A-Z alphabetizing across domains directly ignoring layout logic, applying output directly to disk.
-
-```bash
-domsort -i raw.txt -o alphabetical.txt -a -v
-```
+~~~eof
 

@@ -1,12 +1,15 @@
 /*
 ==========================================================================
 Filename: clean-dom/formatter.go
-Version: 1.18.0-20260503
-Date: 2026-05-03 18:51 CEST
+Version: 1.26.0-20260518
+Date: 2026-05-18 10:46 CEST
 Description: Handles deduplication, formatting, layout mapping, output 
              generation, comment injection, and disk writing operations.
 
 Update Trail:
+  - 1.26.0 (2026-05-18): Leveraged extractSortKey tree boundaries natively to inject
+                         external Category / Source identifiers inline directly 
+                         above domains inside the unified output arrays securely.
   - 1.18.0 (2026-05-03): Implemented explicit global reporting file outputs securely 
                          writing telemetry matrices cleanly mapping directly to 
                          ingestion bounds resolving sources iteratively.
@@ -463,6 +466,14 @@ func buildOutputs(
 
 			// Inject detailed audit comments mapping removed entries directly into the allowlist slice natively
 			if !suppressComments {
+				
+				// Natively map External Integration sources directly inline above active domains
+				for _, k := range allowSlice {
+					if src, exists := sourceMap[k]; exists {
+						allowSlice = append(allowSlice, fmt.Sprintf("# %s - %s", k, src))
+					}
+				}
+				
 				allowSlice = append(allowSlice, removedLogUnusedAllows...)
 				allowSlice = append(allowSlice, removedLogInvalidAllows...)
 				allowSlice = append(allowSlice, removedLogEclipsedAllows...)
@@ -548,17 +559,27 @@ func buildOutputs(
 
 		if bwBlock != nil {
 			var outputItems []string
+			var activeMap map[string]struct{}
+			
 			if fmtType == "hosts" {
-				for k := range filteredBlocks {
-					outputItems = append(outputItems, k)
-				}
+				activeMap = filteredBlocks
 			} else {
-				for k := range finalActive {
-					outputItems = append(outputItems, k)
-				}
+				activeMap = finalActive
+			}
+			
+			for k := range activeMap {
+				outputItems = append(outputItems, k)
 			}
 
 			if !suppressComments {
+				
+				// Natively map External Integration sources directly inline above active domains
+				for k := range activeMap {
+					if src, exists := sourceMap[k]; exists {
+						outputItems = append(outputItems, fmt.Sprintf("# %s - %s", k, src))
+					}
+				}
+				
 				outputItems = append(outputItems, removedLogInvalids...)
 				outputItems = append(outputItems, removedLogGeneral...)
 				if fmtType != "hosts" {
@@ -588,13 +609,7 @@ func buildOutputs(
 							}
 						}
 						
-						exists := false
-						if fmtType == "hosts" {
-							_, exists = filteredBlocks[domCheck]
-						} else {
-							_, exists = finalActive[domCheck]
-						}
-						if exists {
+						if _, exists := activeMap[domCheck]; exists {
 							outputItems = append(outputItems, conv)
 						}
 					}

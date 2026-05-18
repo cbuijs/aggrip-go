@@ -1,8 +1,25 @@
 // ==========================================================================
 // Filename: shared/version.go
-// Version: 1.21.0-20260506
-// Date: 2026-05-06 16:30 CEST
+// Version: 1.26.1-20260518
+// Date: 2026-05-18 10:50 CEST
 // Update Trail:
+//   - 1.26.1-20260518: Added parsing support for the "Observed" category natively 
+//                      matching domains with an empty categories array in DDG.
+//   - 1.26.0-20260518: Updated formatter.go to natively append DuckDuckGo and 
+//                      Cloudflare category sources as comments directly above 
+//                      active domains in output files using the O(N log N) 
+//                      extractSortKey engine securely. 
+//   - 1.25.0-20260518: Added "default" parameter parsing substituting recommended 
+//                      best-practice categories dynamically. Updated DDG and CF.
+//   - 1.24.1-20260518: URL-encoded Cloudflare API categories to support spaces.
+//                      Increased DuckDuckGo ZIP download timeout to 120 seconds.
+//   - 1.24.0-20260518: Implemented ETag/If-None-Match caching mechanism for 
+//                      DuckDuckGo Tracker Radar archive downloads.
+//   - 1.23.0-20260518: Added --list-categories flag to clean-dom. Implemented
+//                      categories.go to output DDG and CF available telemetry lists.
+//   - 1.22.0-20260518: Integrated DuckDuckGo Tracker Radar and Cloudflare Radar 
+//                      Domain Information API natively into clean-dom. Added 
+//                      allowlist and blocklist categorization capabilities.
 //   - 1.21.0-20260506: Added descriptive summaries explaining tool functionality
 //                      to the standard --help output across the entire suite.
 //   - 1.20.0-20260506: Added `--undup` (-u) feature and layout-alphabetical 
@@ -73,7 +90,7 @@ import (
 
 // SuiteVersion defines the strictly synchronized global version for all tools natively.
 // Maintains synchronized output during CLI invocations.
-const SuiteVersion = "1.21.0-20260506"
+const SuiteVersion = "1.26.1-20260518"
 
 // PrintVersion outputs the standardized version string for the requesting tool
 // and securely exits the process to bypass execution natively. This avoids 
